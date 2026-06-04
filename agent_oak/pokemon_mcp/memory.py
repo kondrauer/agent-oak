@@ -1,0 +1,120 @@
+"""Memory module for the Pokemon MCP."""
+
+from pyboy import PyBoy
+
+from agent_oak.pokemon_mcp.models import (
+    Pokemon,
+    PokemonSpecies,
+    PokemonStats,
+    StatusFlags,
+)
+
+PARTY_STRUCT_LEN = 0x2C  # 44
+NAME_LEN = 11
+
+
+def u16_big_endian(
+    data: bytes,
+    off: int,
+) -> int:
+    """Read a big-endian 16-bit unsigned integer from the given offset.
+
+    Args:
+        data: The data to read from.
+        off: The offset to read from.
+    Returns:
+        The 16-bit unsigned integer at the given offset.
+    """
+    return (data[off] << 8) | data[off + 1]
+
+
+def decode_text(data: bytes) -> str:
+    """Decode text from the Pokemon ROM encoding.
+
+    Args:
+        data: The bytes to decode.
+    Returns:
+        The decoded string.
+    """
+    out = []
+    for b in data:
+        if b == 0x50:  # End of string
+            break
+        if b == 0x7F:  # Whitespace
+            out.append(" ")
+        elif 0x80 <= b <= 0x99:  # Uppercase letters
+            out.append(chr(b - 0x80 + ord("A")))
+        elif 0xA0 <= b <= 0xB9:  # Lowercase letters
+            out.append(chr(b - 0xA0 + ord("a")))
+        elif 0xF6 <= b <= 0xFF:  # Digits
+            out.append(chr(b - 0xF6 + ord("0")))
+        else:
+            out.append("?")
+
+    return "".join(out)
+
+
+def parse_pokemon(data: bytes, nickname: bytes, original_trainer: bytes) -> Pokemon:
+    """Parse a Pokemon from the given data.
+
+    Args:
+        data: The raw bytes representing the Pokemon.
+        nickname: The raw bytes representing the Pokemon's nickname.
+        original_trainer: The raw bytes representing the Pokemon's original trainer.
+    Returns:
+        A Pokemon object representing the parsed data.
+    """
+    species = data[0]
+
+    return Pokemon(
+        species_id=species,
+        species=PokemonSpecies(species),
+        nickname=decode_text(nickname),
+        original_trainer=decode_text(original_trainer),
+        original_trainer_id=u16_big_endian(data, 0x0C),
+        level=data[0x21],
+        hp=u16_big_endian(data, 0x01),
+        max_hp=u16_big_endian(data, 0x22),
+        status=StatusFlags(data[0x04]),
+        type1=data[0x05],
+        type2=data[0x06],
+        moves=list(data[0x08:0x0C]),
+        pp=list(data[0x1D:0x21]),
+        stats=PokemonStats(
+            attack=u16_big_endian(data, 0x14),
+            defense=u16_big_endian(data, 0x15),
+            speed=u16_big_endian(data, 0x16),
+            special=u16_big_endian(data, 0x17),
+        ),
+        experience=(data[0x0E] << 16) | (data[0x0F] << 8) | data[0x10],
+    )
+
+
+def read_party(pyboy: PyBoy, syms: dict[str, int]) -> list[Pokemon]:
+    """Read the player's party from the emulator's memory.
+
+    Args:
+        pyboy: The emulator instance to read from.
+        syms: The symbol table mapping names to addresses.
+    Returns:
+        A list of Pokemon representing the player's party.
+    """
+    count = pyboy.memory[syms["wPartyCount"]]
+    base = syms["wPartyMon1"]
+    nicks = syms["wPartyMonNicks"]
+    ots = syms["wPartyMonOT"]
+    party = []
+    for i in range(count):
+        pokemon = bytes(
+            pyboy.memory[
+                base + i * PARTY_STRUCT_LEN : base + (i + 1) * PARTY_STRUCT_LEN
+            ]
+        )
+        nickname = bytes(
+            pyboy.memory[nicks + i * NAME_LEN : nicks + (i + 1) * NAME_LEN]
+        )
+        original_trainer = bytes(
+            pyboy.memory[ots + i * NAME_LEN : ots + (i + 1) * NAME_LEN]
+        )
+        party.append(parse_pokemon(pokemon, nickname, original_trainer))
+    return party
