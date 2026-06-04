@@ -3,12 +3,15 @@
 from pyboy import PyBoy
 
 from agent_oak.pokemon_mcp.mappings import (
+    BADGES,
     Maps,
     PokemonSpecies,
     StatusFlags,
     Tilesets,
 )
 from agent_oak.pokemon_mcp.models import (
+    ObtainedBadge,
+    ObtainedBadges,
     PlayerLocation,
     Pokemon,
     PokemonStats,
@@ -152,4 +155,34 @@ def read_location(
         tileset=Tilesets(tileset_id).name,
         x=pyboy.memory[syms["wXCoord"]],
         y=pyboy.memory[syms["wYCoord"]],
+    )
+
+
+def read_badges(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> ObtainedBadges:
+    """Read the player's badges from the emulator's memory.
+
+    Args:
+        pyboy: The emulator instance to read from.
+        syms: The symbol table mapping names to addresses.
+    Returns:
+        An ObtainedBadges object representing the player's obtained badges.
+    """
+    bits = pyboy.memory[syms["wObtainedBadges"]]
+    obtained = [
+        ObtainedBadge(
+            name=name,
+            leader=leader,
+            city=city,
+        )
+        for i, (name, leader, city) in enumerate(BADGES)
+        if bits & (1 << i)
+    ]
+
+    return ObtainedBadges(
+        badges=obtained,
+        count=len(obtained),
+        raw_bits=bits,
     )

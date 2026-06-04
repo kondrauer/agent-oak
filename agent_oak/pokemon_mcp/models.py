@@ -5,6 +5,22 @@ from pydantic import BaseModel
 from agent_oak.pokemon_mcp.mappings import PokemonSpecies, StatusFlags
 
 
+class ObtainedBadge(BaseModel):
+    """Data model for an obtained badge."""
+
+    name: str
+    leader: str
+    city: str
+
+
+class ObtainedBadges(BaseModel):
+    """Data model for the player's obtained badges."""
+
+    badges: list[ObtainedBadge]
+    count: int
+    raw_bits: int
+
+
 class PokemonStats(BaseModel):
     """Pokemon stats data model."""
 
