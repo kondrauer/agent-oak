@@ -3,10 +3,12 @@
 from threading import Lock
 
 from fastmcp import FastMCP
+from fastmcp.utilities.types import Image
 from pyboy import PyBoy
 
+from agent_oak.pokemon_mcp.emulator import grab_screen_png
 from agent_oak.pokemon_mcp.memory import read_location, read_party
-from agent_oak.pokemon_mcp.models import Pokemon
+from agent_oak.pokemon_mcp.models import PlayerLocation, Pokemon
 
 
 def build_server(
@@ -38,7 +40,7 @@ def build_server(
             return read_party(pyboy=pyboy, syms=symbols)
 
     @mcp.tool()
-    def get_location():
+    def get_location() -> PlayerLocation:
         """Get the player's location from the emulator.
 
         Returns:
@@ -46,5 +48,45 @@ def build_server(
         """
         with mem_lock:
             return read_location(pyboy=pyboy, syms=symbols)
+
+    @mcp.tool()
+    def press_button(button: str):
+        """Press a button on the emulator.
+
+        Args:
+            button: The name of the button to press (e.g., "A", "B", "UP", "DOWN").
+        """
+        with mem_lock:
+            pyboy.send_input(event=button)
+
+    @mcp.tool()
+    def advance_frames(frames: int):
+        """Advance the emulator by a given number of frames.
+
+        Args:
+            frames: The number of frames to advance.
+        """
+        with mem_lock:
+            for _ in range(frames):
+                if not pyboy.tick():
+                    break
+
+    @mcp.tool()
+    def get_screenshot(scale: int = 3) -> Image | None:
+        """Take a screenshot of the emulator's current state.
+
+        Args:
+            scale: The scale factor to apply to the screenshot (default is 3).
+        Returns:
+            An Image object representing the emulator's screen,
+                or None if the screenshot could not be taken.
+        """
+        with mem_lock:
+            png = grab_screen_png(pyboy, scale=scale)
+            if png is not None:
+                return Image(
+                    data=png,
+                    format="PNG",
+                )
 
     return mcp

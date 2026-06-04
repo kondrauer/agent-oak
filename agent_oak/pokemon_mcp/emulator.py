@@ -1,6 +1,7 @@
 """Emulator state module."""
 
 import re
+from io import BytesIO
 from pathlib import Path
 
 from pyboy import PyBoy
@@ -35,3 +36,24 @@ def load_symbols(path: Path) -> dict[str, int]:
                 bank, addr, name = m.groups()
                 syms[name] = int(addr, 16)
     return syms
+
+
+def grab_screen_png(pyboy: PyBoy, scale: int = 3) -> bytes | None:
+    """Grab a screenshot of the emulator's current state as a PNG.
+
+    Args:
+        pyboy: The emulator instance to grab from.
+        scale: The scale factor for the screenshot.
+    Returns:
+        A PNG image as bytes representing the emulator's screen.
+    """
+    if img := pyboy.screen.image:
+        img = img.convert("RGB")
+        if scale != 1:
+            img = img.resize(
+                size=(img.width * scale, img.height * scale),
+                resample=0,
+            )
+        buf = BytesIO()
+        img.save(buf, format="PNG", optimize=True)
+        return buf.getvalue()
