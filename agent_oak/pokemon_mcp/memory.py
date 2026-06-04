@@ -2,11 +2,16 @@
 
 from pyboy import PyBoy
 
-from agent_oak.pokemon_mcp.models import (
-    Pokemon,
+from agent_oak.pokemon_mcp.mappings import (
+    Maps,
     PokemonSpecies,
-    PokemonStats,
     StatusFlags,
+    Tilesets,
+)
+from agent_oak.pokemon_mcp.models import (
+    PlayerLocation,
+    Pokemon,
+    PokemonStats,
 )
 
 PARTY_STRUCT_LEN = 0x2C  # 44
@@ -54,7 +59,11 @@ def decode_text(data: bytes) -> str:
     return "".join(out)
 
 
-def parse_pokemon(data: bytes, nickname: bytes, original_trainer: bytes) -> Pokemon:
+def parse_pokemon(
+    data: bytes,
+    nickname: bytes,
+    original_trainer: bytes,
+) -> Pokemon:
     """Parse a Pokemon from the given data.
 
     Args:
@@ -90,7 +99,10 @@ def parse_pokemon(data: bytes, nickname: bytes, original_trainer: bytes) -> Poke
     )
 
 
-def read_party(pyboy: PyBoy, syms: dict[str, int]) -> list[Pokemon]:
+def read_party(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> list[Pokemon]:
     """Read the player's party from the emulator's memory.
 
     Args:
@@ -118,3 +130,26 @@ def read_party(pyboy: PyBoy, syms: dict[str, int]) -> list[Pokemon]:
         )
         party.append(parse_pokemon(pokemon, nickname, original_trainer))
     return party
+
+
+def read_location(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> PlayerLocation:
+    """Read the player's location from the emulator's memory.
+
+    Args:
+        pyboy: The emulator instance to read from.
+        syms: The symbol table mapping names to addresses.
+    Returns:
+        A PlayerLocation object representing the player's location.
+    """
+    map_id = pyboy.memory[syms["wCurMap"]]
+    tileset_id = pyboy.memory[syms["wCurMapTileset"]]
+    return PlayerLocation(
+        map_id=map_id,
+        map_name=Maps(map_id).name,
+        tileset=Tilesets(tileset_id).name,
+        x=pyboy.memory[syms["wXCoord"]],
+        y=pyboy.memory[syms["wYCoord"]],
+    )
