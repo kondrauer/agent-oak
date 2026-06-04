@@ -6,6 +6,7 @@ from agent_oak.pokemon_mcp.mappings import (
     BattleType,
     Moves,
     PokemonSpecies,
+    PokemonTypes,
     StatusFlags,
 )
 
@@ -68,6 +69,8 @@ class BattlePokemon(BaseModel):
     status: StatusFlags = Field(..., use_enum_values=False)
     moves: list[Moves] = Field(..., use_enum_values=False)
     pp: list[int]
+    type1: PokemonTypes = Field(..., use_enum_values=False)
+    type2: PokemonTypes = Field(..., use_enum_values=False)
     nickname: str | None = None
 
     @field_serializer("species")
@@ -84,6 +87,16 @@ class BattlePokemon(BaseModel):
     def serialize_moves(self, value: list[Moves]) -> list[str]:
         """Serialize move enums using their member names."""
         return [move.name for move in value]
+
+    @field_serializer("type1")
+    def serialize_type1(self, value: PokemonTypes) -> str:
+        """Serialize the type1 enum using its member name."""
+        return value.name
+
+    @field_serializer("type2")
+    def serialize_type2(self, value: PokemonTypes) -> str:
+        """Serialize the type2 enum using its member name."""
+        return value.name
 
 
 class BattleState(BaseModel):
@@ -112,8 +125,8 @@ class Pokemon(BaseModel):
     hp: int
     max_hp: int
     status: StatusFlags = Field(..., use_enum_values=False)
-    type1: int
-    type2: int
+    type1: PokemonTypes = Field(..., use_enum_values=False)
+    type2: PokemonTypes = Field(..., use_enum_values=False)
     moves: list[Moves] = Field(..., use_enum_values=False)
     pp: list[int]
     stats: PokemonStats
@@ -133,6 +146,16 @@ class Pokemon(BaseModel):
     def serialize_moves(self, value: list[Moves]) -> list[str]:
         """Serialize move enums using their member names."""
         return [move.name for move in value]
+
+    @field_serializer("type1")
+    def serialize_type1(self, value: PokemonTypes) -> str:
+        """Serialize the type1 enum using its member name."""
+        return value.name
+
+    @field_serializer("type2")
+    def serialize_type2(self, value: PokemonTypes) -> str:
+        """Serialize the type2 enum using its member name."""
+        return value.name
 
 
 class PlayerLocation(BaseModel):

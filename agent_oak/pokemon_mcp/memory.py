@@ -11,6 +11,7 @@ from agent_oak.pokemon_mcp.mappings import (
     Maps,
     Moves,
     PokemonSpecies,
+    PokemonTypes,
     StatusFlags,
     Tilesets,
     TMs,
@@ -80,8 +81,8 @@ def _parse_pokemon(
         hp=u16_big_endian(data, 0x01),
         max_hp=u16_big_endian(data, 0x22),
         status=StatusFlags(data[0x04]),
-        type1=data[0x05],
-        type2=data[0x06],
+        type1=PokemonTypes(data[0x05]),
+        type2=PokemonTypes(data[0x06]),
         moves=[Moves(m) for m in data[0x08:0x0C]],
         pp=list(data[0x1D:0x21]),
         stats=PokemonStats(
@@ -125,6 +126,8 @@ def _parse_battle_pokemon(
         hp=hp,
         max_hp=max_hp,
         status=StatusFlags(pyboy.memory[syms[f"{prefix}Status"]]),
+        type1=PokemonTypes(pyboy.memory[syms[f"{prefix}Type1"]]),
+        type2=PokemonTypes(pyboy.memory[syms[f"{prefix}Type2"]]),
         moves=[
             Moves(m)
             for m in pyboy.memory[syms[f"{prefix}Moves"] : syms[f"{prefix}Moves"] + 4]
