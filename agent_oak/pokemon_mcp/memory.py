@@ -4,12 +4,17 @@ from pyboy import PyBoy
 
 from agent_oak.pokemon_mcp.mappings import (
     BADGES,
+    HMs,
+    Items,
     Maps,
     PokemonSpecies,
     StatusFlags,
     Tilesets,
+    TMs,
 )
 from agent_oak.pokemon_mcp.models import (
+    BagItems,
+    Item,
     ObtainedBadge,
     ObtainedBadges,
     PlayerLocation,
@@ -185,4 +190,55 @@ def read_badges(
         badges=obtained,
         count=len(obtained),
         raw_bits=bits,
+    )
+
+
+def _item_name(item_id: int) -> str:
+    """Get the name of an item given its ID.
+
+    Args:
+        item_id: The ID of the item to get the name of.
+    Returns:
+        The name of the item with the given ID.
+    """
+    if 0xC9 <= item_id <= 0xFF:
+        return f"TM{item_id - 0xC8:02d}_{TMs(item_id)}"
+    elif 0xC4 <= item_id <= 0xC8:
+        return f"HM{item_id - 0xC3:02d}_{HMs(item_id)}"
+    elif item_id in Items._value2member_map_:
+        return Items(item_id).name
+    else:
+        return f"Unknown_{item_id:02X}"
+
+
+def read_bag(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> BagItems:
+    """Read the player's bag from the emulator's memory.
+
+    Args:
+        pyboy: The emulator instance to read from.
+        syms: The symbol table mapping names to addresses.
+    Returns:
+        An Items object representing the player's bag contents.
+    """
+    count = pyboy.memory[syms["wNumBagItems"]]
+    base = syms["wBagItems"]
+    items = []
+
+    for i in range(count):
+        item_id = pyboy.memory[base + i * 2]
+        qty = pyboy.memory[base + i * 2 + 1]
+        items.append(
+            Item(
+                id=item_id,
+                name=_item_name(item_id),
+                quantity=qty,
+            )
+        )
+
+    return BagItems(
+        items=items,
+        count=count,
     )

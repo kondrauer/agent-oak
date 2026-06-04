@@ -8,8 +8,18 @@ from pyboy import PyBoy
 
 from agent_oak.pokemon_mcp.emulator import grab_screen_png
 from agent_oak.pokemon_mcp.mappings import Button
-from agent_oak.pokemon_mcp.memory import read_badges, read_location, read_party
-from agent_oak.pokemon_mcp.models import ObtainedBadges, PlayerLocation, Pokemon
+from agent_oak.pokemon_mcp.memory import (
+    read_badges,
+    read_bag,
+    read_location,
+    read_party,
+)
+from agent_oak.pokemon_mcp.models import (
+    BagItems,
+    ObtainedBadges,
+    PlayerLocation,
+    Pokemon,
+)
 
 
 def build_server(
@@ -65,6 +75,19 @@ def build_server(
         """
         with mem_lock:
             return read_badges(
+                pyboy=pyboy,
+                syms=symbols,
+            )
+
+    @mcp.tool()
+    def get_bag() -> BagItems:
+        """Get the player's bag contents from the emulator.
+
+        Returns:
+            A BagItems object representing the player's bag contents.
+        """
+        with mem_lock:
+            return read_bag(
                 pyboy=pyboy,
                 syms=symbols,
             )

@@ -5,6 +5,21 @@ from pydantic import BaseModel
 from agent_oak.pokemon_mcp.mappings import PokemonSpecies, StatusFlags
 
 
+class Item(BaseModel):
+    """Data model for an item in the player's inventory."""
+
+    id: int
+    name: str
+    quantity: int
+
+
+class BagItems(BaseModel):
+    """Data model for the player's inventory."""
+
+    items: list[Item]
+    count: int
+
+
 class ObtainedBadge(BaseModel):
     """Data model for an obtained badge."""
 
