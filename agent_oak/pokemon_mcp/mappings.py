@@ -14,6 +14,13 @@ BADGES = [
 ]
 
 
+class BattleType(int, Enum):
+    """Battle type enumeration."""
+
+    WILD = 0
+    TRAINER = 1
+
+
 class Button(str, Enum):
     """Button name enumeration."""
 

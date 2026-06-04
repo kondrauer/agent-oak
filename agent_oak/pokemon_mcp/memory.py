@@ -1,5 +1,7 @@
 """Memory module for the Pokemon MCP."""
 
+from typing import Literal
+
 from pyboy import PyBoy
 
 from agent_oak.pokemon_mcp.mappings import (
@@ -14,6 +16,9 @@ from agent_oak.pokemon_mcp.mappings import (
 )
 from agent_oak.pokemon_mcp.models import (
     BagItems,
+    BattlePokemon,
+    BattleState,
+    BattleType,
     Item,
     ObtainedBadge,
     ObtainedBadges,
@@ -24,6 +29,109 @@ from agent_oak.pokemon_mcp.models import (
 
 PARTY_STRUCT_LEN = 0x2C  # 44
 NAME_LEN = 11
+BattlePokemonPrefix = Literal["wBattleMon", "wEnemyMon"]
+
+
+def _item_name(item_id: int) -> str:
+    """Get the name of an item given its ID.
+
+    Args:
+        item_id: The ID of the item to get the name of.
+    Returns:
+        The name of the item with the given ID.
+    """
+    if 0xC9 <= item_id <= 0xFF:
+        return f"TM{item_id - 0xC8:02d}_{TMs(item_id)}"
+    elif 0xC4 <= item_id <= 0xC8:
+        return f"HM{item_id - 0xC3:02d}_{HMs(item_id)}"
+    elif item_id in Items._value2member_map_:
+        return Items(item_id).name
+    else:
+        return f"Unknown_{item_id:02X}"
+
+
+def _parse_pokemon(
+    data: bytes,
+    nickname: bytes,
+    original_trainer: bytes,
+) -> Pokemon:
+    """Parse a Pokemon from the given data.
+
+    Args:
+        data: The raw bytes representing the Pokemon.
+        nickname: The raw bytes representing the Pokemon's nickname.
+        original_trainer: The raw bytes representing the Pokemon's original trainer.
+    Returns:
+        A Pokemon object representing the parsed data.
+    """
+    species = data[0]
+
+    return Pokemon(
+        species_id=species,
+        species=PokemonSpecies(species),
+        nickname=decode_text(nickname),
+        original_trainer=decode_text(original_trainer),
+        original_trainer_id=u16_big_endian(data, 0x0C),
+        level=data[0x21],
+        hp=u16_big_endian(data, 0x01),
+        max_hp=u16_big_endian(data, 0x22),
+        status=StatusFlags(data[0x04]),
+        type1=data[0x05],
+        type2=data[0x06],
+        moves=list(data[0x08:0x0C]),
+        pp=list(data[0x1D:0x21]),
+        stats=PokemonStats(
+            attack=u16_big_endian(data, 0x14),
+            defense=u16_big_endian(data, 0x15),
+            speed=u16_big_endian(data, 0x16),
+            special=u16_big_endian(data, 0x17),
+        ),
+        experience=(data[0x0E] << 16) | (data[0x0F] << 8) | data[0x10],
+    )
+
+
+def _parse_battle_pokemon(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+    prefix: BattlePokemonPrefix,
+    include_nick: bool,
+) -> BattlePokemon:
+    """Parse a Pokemon in battle from the emulator's memory.
+
+    Args:
+        pyboy: The emulator instance to read from.
+        syms: The symbol table mapping names to addresses.
+        prefix: The prefix for the battle Pokemon symbols.
+        include_nick: Whether to include the Pokemon's nickname in the parsed data.
+    Returns:
+        A BattlePokemon object representing the parsed data.
+    """
+    species = pyboy.memory[syms[f"{prefix}Species"]]
+    hp = (pyboy.memory[syms[f"{prefix}HP"]] << 8) | pyboy.memory[
+        syms[f"{prefix}HP"] + 1
+    ]
+    max_hp = (pyboy.memory[syms[f"{prefix}MaxHP"]] << 8) | pyboy.memory[
+        syms[f"{prefix}MaxHP"]
+    ] + 1
+
+    out = BattlePokemon(
+        species_id=species,
+        species=PokemonSpecies(species),
+        level=pyboy.memory[syms[f"{prefix}Level"]],
+        hp=hp,
+        max_hp=max_hp,
+        status=StatusFlags(pyboy.memory[syms[f"{prefix}Status"]]),
+        moves=list(pyboy.memory[syms[f"{prefix}Moves"] : syms[f"{prefix}Moves"] + 4]),
+        pp=list(pyboy.memory[syms[f"{prefix}PP"] : syms[f"{prefix}PP"] + 4]),
+    )
+
+    if include_nick:
+        nickname_bytes = bytes(
+            pyboy.memory[syms[f"{prefix}Nick"] : syms[f"{prefix}Nick"] + NAME_LEN]
+        )
+        out.nickname = decode_text(nickname_bytes)
+
+    return out
 
 
 def u16_big_endian(
@@ -67,44 +175,21 @@ def decode_text(data: bytes) -> str:
     return "".join(out)
 
 
-def parse_pokemon(
-    data: bytes,
-    nickname: bytes,
-    original_trainer: bytes,
-) -> Pokemon:
-    """Parse a Pokemon from the given data.
+def decode_status(b: int) -> list[str]:
+    """Decode a Pokemon's status flags from the given byte.
 
     Args:
-        data: The raw bytes representing the Pokemon.
-        nickname: The raw bytes representing the Pokemon's nickname.
-        original_trainer: The raw bytes representing the Pokemon's original trainer.
+        b: The byte representing the Pokemon's status flags.
     Returns:
-        A Pokemon object representing the parsed data.
+        A list of strings representing the Pokemon's status conditions.
     """
-    species = data[0]
-
-    return Pokemon(
-        species_id=species,
-        species=PokemonSpecies(species),
-        nickname=decode_text(nickname),
-        original_trainer=decode_text(original_trainer),
-        original_trainer_id=u16_big_endian(data, 0x0C),
-        level=data[0x21],
-        hp=u16_big_endian(data, 0x01),
-        max_hp=u16_big_endian(data, 0x22),
-        status=StatusFlags(data[0x04]),
-        type1=data[0x05],
-        type2=data[0x06],
-        moves=list(data[0x08:0x0C]),
-        pp=list(data[0x1D:0x21]),
-        stats=PokemonStats(
-            attack=u16_big_endian(data, 0x14),
-            defense=u16_big_endian(data, 0x15),
-            speed=u16_big_endian(data, 0x16),
-            special=u16_big_endian(data, 0x17),
-        ),
-        experience=(data[0x0E] << 16) | (data[0x0F] << 8) | data[0x10],
-    )
+    if b == 0:
+        return ["healthy"]
+    out = []
+    for mask, name in StatusFlags._value2member_map_.items():
+        if b & mask:
+            out.append(name)
+    return out
 
 
 def read_party(
@@ -136,7 +221,7 @@ def read_party(
         original_trainer = bytes(
             pyboy.memory[ots + i * NAME_LEN : ots + (i + 1) * NAME_LEN]
         )
-        party.append(parse_pokemon(pokemon, nickname, original_trainer))
+        party.append(_parse_pokemon(pokemon, nickname, original_trainer))
     return party
 
 
@@ -193,24 +278,6 @@ def read_badges(
     )
 
 
-def _item_name(item_id: int) -> str:
-    """Get the name of an item given its ID.
-
-    Args:
-        item_id: The ID of the item to get the name of.
-    Returns:
-        The name of the item with the given ID.
-    """
-    if 0xC9 <= item_id <= 0xFF:
-        return f"TM{item_id - 0xC8:02d}_{TMs(item_id)}"
-    elif 0xC4 <= item_id <= 0xC8:
-        return f"HM{item_id - 0xC3:02d}_{HMs(item_id)}"
-    elif item_id in Items._value2member_map_:
-        return Items(item_id).name
-    else:
-        return f"Unknown_{item_id:02X}"
-
-
 def read_bag(
     pyboy: PyBoy,
     syms: dict[str, int],
@@ -241,4 +308,49 @@ def read_bag(
     return BagItems(
         items=items,
         count=count,
+    )
+
+
+def read_battle_state(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> BattleState:
+    """Read the current battle state from the emulator's memory.
+
+    Args:
+        pyboy: The emulator instance to read from.
+        syms: The symbol table mapping names to addresses.
+    Returns:
+        A BattleState object representing the current battle state.
+    """
+    in_battle = pyboy.memory[syms["wIsInBattle"]] != 0
+    battle_type = (
+        BattleType(pyboy.memory[syms["wBattleType"]]) if in_battle else "unknown"
+    )
+    player_pokemon = (
+        _parse_battle_pokemon(
+            pyboy,
+            syms,
+            "wBattleMon",
+            include_nick=True,
+        )
+        if in_battle
+        else None
+    )
+    enemy_pokemon = (
+        _parse_battle_pokemon(
+            pyboy,
+            syms,
+            "wEnemyMon",
+            include_nick=False,
+        )
+        if in_battle
+        else None
+    )
+
+    return BattleState(
+        in_battle=in_battle,
+        battle_type=battle_type,
+        player_pokemon=player_pokemon,
+        enemy_pokemon=enemy_pokemon,
     )

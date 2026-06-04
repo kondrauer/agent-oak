@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel
 
-from agent_oak.pokemon_mcp.mappings import PokemonSpecies, StatusFlags
+from agent_oak.pokemon_mcp.mappings import BattleType, PokemonSpecies, StatusFlags
 
 
 class Item(BaseModel):
@@ -43,6 +43,29 @@ class PokemonStats(BaseModel):
     defense: int
     speed: int
     special: int
+
+
+class BattlePokemon(BaseModel):
+    """Data model for a Pokemon in battle."""
+
+    species_id: int
+    species: PokemonSpecies
+    level: int
+    hp: int
+    max_hp: int
+    status: StatusFlags
+    moves: list[int]
+    pp: list[int]
+    nickname: str | None = None
+
+
+class BattleState(BaseModel):
+    """Data model for the state of a battle."""
+
+    in_battle: bool
+    battle_type: BattleType | str
+    player_pokemon: BattlePokemon | None
+    enemy_pokemon: BattlePokemon | None
 
 
 class Pokemon(BaseModel):

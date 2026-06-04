@@ -11,11 +11,13 @@ from agent_oak.pokemon_mcp.mappings import Button
 from agent_oak.pokemon_mcp.memory import (
     read_badges,
     read_bag,
+    read_battle_state,
     read_location,
     read_party,
 )
 from agent_oak.pokemon_mcp.models import (
     BagItems,
+    BattleState,
     ObtainedBadges,
     PlayerLocation,
     Pokemon,
@@ -88,6 +90,19 @@ def build_server(
         """
         with mem_lock:
             return read_bag(
+                pyboy=pyboy,
+                syms=symbols,
+            )
+
+    @mcp.tool()
+    def get_battle_state() -> BattleState:
+        """Get the current battle state from the emulator.
+
+        Returns:
+            A BattleState object representing the current battle state.
+        """
+        with mem_lock:
+            return read_battle_state(
                 pyboy=pyboy,
                 syms=symbols,
             )
