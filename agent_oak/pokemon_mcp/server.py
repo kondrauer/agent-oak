@@ -126,7 +126,7 @@ def build_server(
     @mcp.tool()
     def press_button(
         button: Button,
-        hold_frames: int = 1,
+        hold_frames: int = 10,
     ) -> str:
         """Press a button on the emulator.
 

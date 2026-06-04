@@ -9,6 +9,7 @@ from agent_oak.pokemon_mcp.mappings import (
     HMs,
     Items,
     Maps,
+    Moves,
     PokemonSpecies,
     StatusFlags,
     Tilesets,
@@ -81,7 +82,7 @@ def _parse_pokemon(
         status=StatusFlags(data[0x04]),
         type1=data[0x05],
         type2=data[0x06],
-        moves=list(data[0x08:0x0C]),
+        moves=[Moves(m) for m in data[0x08:0x0C]],
         pp=list(data[0x1D:0x21]),
         stats=PokemonStats(
             attack=u16_big_endian(data, 0x14),
@@ -114,8 +115,8 @@ def _parse_battle_pokemon(
         syms[f"{prefix}HP"] + 1
     ]
     max_hp = (pyboy.memory[syms[f"{prefix}MaxHP"]] << 8) | pyboy.memory[
-        syms[f"{prefix}MaxHP"]
-    ] + 1
+        syms[f"{prefix}MaxHP"] + 1
+    ]
 
     out = BattlePokemon(
         species_id=species,
@@ -124,7 +125,10 @@ def _parse_battle_pokemon(
         hp=hp,
         max_hp=max_hp,
         status=StatusFlags(pyboy.memory[syms[f"{prefix}Status"]]),
-        moves=list(pyboy.memory[syms[f"{prefix}Moves"] : syms[f"{prefix}Moves"] + 4]),
+        moves=[
+            Moves(m)
+            for m in pyboy.memory[syms[f"{prefix}Moves"] : syms[f"{prefix}Moves"] + 4]
+        ],
         pp=list(pyboy.memory[syms[f"{prefix}PP"] : syms[f"{prefix}PP"] + 4]),
     )
 
@@ -185,7 +189,7 @@ def decode_text(data: bytes) -> str:
         elif 0xF6 <= b <= 0xFF:  # Digits
             out.append(chr(b - 0xF6 + ord("0")))
         else:
-            out.append("?")
+            out.append("")
 
     return "".join(out)
 
@@ -221,7 +225,7 @@ def read_dialogue_text(
     Returns:
         The decoded dialogue text currently displayed in the text box.
     """
-    base = syms["wTyleMap"]
+    base = syms["wTileMap"]
     lines = []
     for row in rows:
         row_start = base + row * TILEMAP_WIDTH
