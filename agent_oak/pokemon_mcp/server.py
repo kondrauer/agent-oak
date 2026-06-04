@@ -7,6 +7,7 @@ from fastmcp.utilities.types import Image
 from pyboy import PyBoy
 
 from agent_oak.pokemon_mcp.emulator import grab_screen_png
+from agent_oak.pokemon_mcp.mappings import Button
 from agent_oak.pokemon_mcp.memory import read_location, read_party
 from agent_oak.pokemon_mcp.models import PlayerLocation, Pokemon
 
@@ -50,14 +51,18 @@ def build_server(
             return read_location(pyboy=pyboy, syms=symbols)
 
     @mcp.tool()
-    def press_button(button: str):
+    def press_button(button: Button, hold_frames: int = 1):
         """Press a button on the emulator.
 
         Args:
-            button: The name of the button to press (e.g., "A", "B", "UP", "DOWN").
+            button: The name of the button to press
+                (e.g., Button.A, Button.B, Button.UP, Button.DOWN).
+            hold_frames: The number of frames to hold the button down (default is 1).
         """
-        with mem_lock:
-            pyboy.send_input(event=button)
+        pyboy.button(
+            button.value,
+            delay=hold_frames,
+        )
 
     @mcp.tool()
     def advance_frames(frames: int):

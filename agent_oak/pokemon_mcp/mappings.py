@@ -3,6 +3,19 @@
 from enum import Enum
 
 
+class Button(str, Enum):
+    """Button name enumeration."""
+
+    A = "a"
+    B = "b"
+    START = "start"
+    SELECT = "select"
+    UP = "up"
+    DOWN = "down"
+    LEFT = "left"
+    RIGHT = "right"
+
+
 class Maps(int, Enum):
     """Map id enumeration from Pokemon Red map constants."""
 
