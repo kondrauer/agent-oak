@@ -19,6 +19,7 @@ from agent_oak.pokemon_mcp.models import (
     BattlePokemon,
     BattleState,
     BattleType,
+    Dialogue,
     Item,
     ObtainedBadge,
     ObtainedBadges,
@@ -29,6 +30,8 @@ from agent_oak.pokemon_mcp.models import (
 
 PARTY_STRUCT_LEN = 0x2C  # 44
 NAME_LEN = 11
+TILEMAP_WIDTH = 20
+
 BattlePokemonPrefix = Literal["wBattleMon", "wEnemyMon"]
 
 
@@ -163,6 +166,18 @@ def decode_text(data: bytes) -> str:
             break
         if b == 0x7F:  # Whitespace
             out.append(" ")
+        elif b == 0x51 or b == 0x4F:  # Line break
+            out.append("\n")
+        elif b == 0x9C:
+            out.append(":")
+        elif b == 0x9D:
+            out.append(";")
+        elif b == 0x9E:
+            out.append("[")
+        elif b == 0x9F:
+            out.append("]")
+        elif b == 0xBA:
+            out.append("é")
         elif 0x80 <= b <= 0x99:  # Uppercase letters
             out.append(chr(b - 0x80 + ord("A")))
         elif 0xA0 <= b <= 0xB9:  # Lowercase letters
@@ -190,6 +205,34 @@ def decode_status(b: int) -> list[str]:
         if b & mask:
             out.append(name)
     return out
+
+
+def read_dialogue_text(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+    rows: range = range(12, 18),
+) -> Dialogue:
+    """Read the current dialogue text from the emulator's memory.
+
+    Args:
+        pyboy: The emulator instance to read from.
+        syms: The symbol table mapping names to addresses.
+        rows: The range of text box rows to read from (default is 12-17).
+    Returns:
+        The decoded dialogue text currently displayed in the text box.
+    """
+    base = syms["wTyleMap"]
+    lines = []
+    for row in rows:
+        row_start = base + row * TILEMAP_WIDTH
+        row_bytes = bytes(pyboy.memory[row_start : row_start + TILEMAP_WIDTH])
+        decoded = decode_text(data=row_bytes).rstrip()
+        if decoded:
+            lines.append(decoded)
+    return Dialogue(
+        text="\n".join(lines),
+        has_dialogue=bool(lines),
+    )
 
 
 def read_party(

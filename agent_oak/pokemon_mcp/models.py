@@ -5,6 +5,13 @@ from pydantic import BaseModel
 from agent_oak.pokemon_mcp.mappings import BattleType, PokemonSpecies, StatusFlags
 
 
+class Dialogue(BaseModel):
+    """Data model for dialogue text."""
+
+    text: str
+    has_dialogue: bool
+
+
 class Item(BaseModel):
     """Data model for an item in the player's inventory."""
 

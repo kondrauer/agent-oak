@@ -12,12 +12,14 @@ from agent_oak.pokemon_mcp.memory import (
     read_badges,
     read_bag,
     read_battle_state,
+    read_dialogue_text,
     read_location,
     read_party,
 )
 from agent_oak.pokemon_mcp.models import (
     BagItems,
     BattleState,
+    Dialogue,
     ObtainedBadges,
     PlayerLocation,
     Pokemon,
@@ -103,6 +105,20 @@ def build_server(
         """
         with mem_lock:
             return read_battle_state(
+                pyboy=pyboy,
+                syms=symbols,
+            )
+
+    @mcp.tool()
+    def get_dialogue() -> Dialogue:
+        """Get the current dialogue text from the emulator.
+
+        Returns:
+            A Dialogue object representing the current dialogue text
+                and whether it exists.
+        """
+        with mem_lock:
+            return read_dialogue_text(
                 pyboy=pyboy,
                 syms=symbols,
             )
