@@ -1,20 +1,16 @@
 """Memory module for the Pokemon MCP."""
 
+from pathlib import Path
 from typing import Literal
 
 from pyboy import PyBoy
 
+from agent_oak.pokemon_mcp.constant_parser import by_id
 from agent_oak.pokemon_mcp.mappings import (
     BADGES,
-    HMs,
-    Items,
-    Maps,
-    Moves,
-    PokemonSpecies,
     PokemonTypes,
     StatusFlags,
     Tilesets,
-    TMs,
 )
 from agent_oak.pokemon_mcp.models import (
     BagItems,
@@ -30,9 +26,16 @@ from agent_oak.pokemon_mcp.models import (
     PokemonStats,
 )
 
-PARTY_STRUCT_LEN = 0x2C  # 44
+PARTY_STRUCT_LEN = 44
 NAME_LEN = 11
 TILEMAP_WIDTH = 20
+
+SPECIES = by_id(Path("constants/pokemon_constants.asm"))
+MOVES = by_id(Path("constants/move_constants.asm"))
+ITEMS = by_id(Path("constants/item_constants.asm"))
+MAPS = by_id(Path("constants/map_constants.asm"))
+CHARMAP = by_id(Path("constants/charmap.asm"))
+print(CHARMAP)
 
 BattlePokemonPrefix = Literal["wBattleMon", "wEnemyMon"]
 
@@ -46,11 +49,11 @@ def _item_name(item_id: int) -> str:
         The name of the item with the given ID.
     """
     if 0xC9 <= item_id <= 0xFF:
-        return f"TM{item_id - 0xC8:02d}_{TMs(item_id)}"
+        return f"TM{item_id - 0xC8:02d}_{ITEMS[item_id]}"
     elif 0xC4 <= item_id <= 0xC8:
-        return f"HM{item_id - 0xC3:02d}_{HMs(item_id)}"
-    elif item_id in Items._value2member_map_:
-        return Items(item_id).name
+        return f"HM{item_id - 0xC3:02d}_{ITEMS[item_id]}"
+    elif item_id in ITEMS:
+        return ITEMS[item_id]
     else:
         return f"Unknown_{item_id:02X}"
 
@@ -73,7 +76,7 @@ def _parse_pokemon(
 
     return Pokemon(
         species_id=species,
-        species=PokemonSpecies(species),
+        species=SPECIES[species],
         nickname=decode_text(nickname),
         original_trainer=decode_text(original_trainer),
         original_trainer_id=u16_big_endian(data, 0x0C),
@@ -83,7 +86,7 @@ def _parse_pokemon(
         status=StatusFlags(data[0x04]),
         type1=PokemonTypes(data[0x05]),
         type2=PokemonTypes(data[0x06]),
-        moves=[Moves(m) for m in data[0x08:0x0C]],
+        moves=[MOVES[m] for m in data[0x08:0x0C]],
         pp=list(data[0x1D:0x21]),
         stats=PokemonStats(
             attack=u16_big_endian(data, 0x14),
@@ -121,7 +124,7 @@ def _parse_battle_pokemon(
 
     out = BattlePokemon(
         species_id=species,
-        species=PokemonSpecies(species),
+        species=SPECIES[species],
         level=pyboy.memory[syms[f"{prefix}Level"]],
         hp=hp,
         max_hp=max_hp,
@@ -129,7 +132,7 @@ def _parse_battle_pokemon(
         type1=PokemonTypes(pyboy.memory[syms[f"{prefix}Type1"]]),
         type2=PokemonTypes(pyboy.memory[syms[f"{prefix}Type2"]]),
         moves=[
-            Moves(m)
+            MOVES[m]
             for m in pyboy.memory[syms[f"{prefix}Moves"] : syms[f"{prefix}Moves"] + 4]
         ],
         pp=list(pyboy.memory[syms[f"{prefix}PP"] : syms[f"{prefix}PP"] + 4]),
@@ -169,28 +172,10 @@ def decode_text(data: bytes) -> str:
     """
     out = []
     for b in data:
-        if b == 0x50:  # End of string
+        if b == 0:
             break
-        if b == 0x7F:  # Whitespace
-            out.append(" ")
-        elif b == 0x51 or b == 0x4F:  # Line break
-            out.append("\n")
-        elif b == 0x9C:
-            out.append(":")
-        elif b == 0x9D:
-            out.append(";")
-        elif b == 0x9E:
-            out.append("[")
-        elif b == 0x9F:
-            out.append("]")
-        elif b == 0xBA:
-            out.append("é")
-        elif 0x80 <= b <= 0x99:  # Uppercase letters
-            out.append(chr(b - 0x80 + ord("A")))
-        elif 0xA0 <= b <= 0xB9:  # Lowercase letters
-            out.append(chr(b - 0xA0 + ord("a")))
-        elif 0xF6 <= b <= 0xFF:  # Digits
-            out.append(chr(b - 0xF6 + ord("0")))
+        elif b in CHARMAP.keys():
+            out.append(CHARMAP[b])
         else:
             out.append("")
 
@@ -291,7 +276,7 @@ def read_location(
     tileset_id = pyboy.memory[syms["wCurMapTileset"]]
     return PlayerLocation(
         map_id=map_id,
-        map_name=Maps(map_id).name,
+        map_name=MAPS[map_id],
         tileset=Tilesets(tileset_id).name,
         x=pyboy.memory[syms["wXCoord"]],
         y=pyboy.memory[syms["wYCoord"]],

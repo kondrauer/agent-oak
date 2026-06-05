@@ -4,8 +4,6 @@ from pydantic import BaseModel, Field, field_serializer
 
 from agent_oak.pokemon_mcp.mappings import (
     BattleType,
-    Moves,
-    PokemonSpecies,
     PokemonTypes,
     StatusFlags,
 )
@@ -62,31 +60,21 @@ class BattlePokemon(BaseModel):
     """Data model for a Pokemon in battle."""
 
     species_id: int
-    species: PokemonSpecies = Field(..., use_enum_values=False)
+    species: str
     level: int
     hp: int
     max_hp: int
     status: StatusFlags = Field(..., use_enum_values=False)
-    moves: list[Moves] = Field(..., use_enum_values=False)
+    moves: list[str]
     pp: list[int]
     type1: PokemonTypes = Field(..., use_enum_values=False)
     type2: PokemonTypes = Field(..., use_enum_values=False)
     nickname: str | None = None
 
-    @field_serializer("species")
-    def serialize_species(self, value: PokemonSpecies) -> str:
-        """Serialize the species enum using its member name."""
-        return value.name
-
     @field_serializer("status")
     def serialize_status(self, value: StatusFlags) -> str:
         """Serialize the status enum using its member name."""
         return value.name
-
-    @field_serializer("moves")
-    def serialize_moves(self, value: list[Moves]) -> list[str]:
-        """Serialize move enums using their member names."""
-        return [move.name for move in value]
 
     @field_serializer("type1")
     def serialize_type1(self, value: PokemonTypes) -> str:
@@ -117,7 +105,7 @@ class Pokemon(BaseModel):
     """Pokemon data model."""
 
     species_id: int
-    species: PokemonSpecies = Field(..., use_enum_values=False)
+    species: str
     nickname: str
     original_trainer: str
     original_trainer_id: int
@@ -127,25 +115,15 @@ class Pokemon(BaseModel):
     status: StatusFlags = Field(..., use_enum_values=False)
     type1: PokemonTypes = Field(..., use_enum_values=False)
     type2: PokemonTypes = Field(..., use_enum_values=False)
-    moves: list[Moves] = Field(..., use_enum_values=False)
+    moves: list[str]
     pp: list[int]
     stats: PokemonStats
     experience: int
-
-    @field_serializer("species")
-    def serialize_species(self, value: PokemonSpecies) -> str:
-        """Serialize the species enum using its member name."""
-        return value.name
 
     @field_serializer("status")
     def serialize_status(self, value: StatusFlags) -> str:
         """Serialize the status enum using its member name."""
         return value.name
-
-    @field_serializer("moves")
-    def serialize_moves(self, value: list[Moves]) -> list[str]:
-        """Serialize move enums using their member names."""
-        return [move.name for move in value]
 
     @field_serializer("type1")
     def serialize_type1(self, value: PokemonTypes) -> str:
