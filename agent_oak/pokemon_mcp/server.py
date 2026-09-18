@@ -9,6 +9,7 @@ from pyboy import PyBoy
 from agent_oak.pokemon_mcp.emulator import grab_screen_png
 from agent_oak.pokemon_mcp.executor import (
     advance_dialogue,
+    walk_to,
 )
 from agent_oak.pokemon_mcp.mappings import Button
 from agent_oak.pokemon_mcp.memory import (
@@ -61,6 +62,31 @@ def build_server(
                 pyboy=pyboy,
                 syms=symbols,
                 timeout_frames=timeout_frames,
+            )
+
+    @mcp.tool()
+    def walk_to_tool(x: int, y: int, max_steps: int = 150) -> dict[str, object]:
+        """Walk toward a tile (x, y) on the current map.
+
+        Moves greedily toward the target, one tile at a time, and stops on
+        arrival, a map change (e.g. stairs or a door were used), a battle
+        or dialogue interrupt, or if no direction makes further progress.
+
+        Args:
+            x: Target x coordinate on the current map.
+            y: Target y coordinate on the current map.
+            max_steps: Maximum number of tile-moves to attempt before giving up.
+        Returns:
+            A dictionary with a status
+                (arrived/map_changed/interupt/stuck/timeout) and final location.
+        """
+        with mem_lock:
+            return walk_to(
+                pyboy=pyboy,
+                syms=symbols,
+                x=x,
+                y=y,
+                max_steps=max_steps,
             )
 
     @mcp.tool()

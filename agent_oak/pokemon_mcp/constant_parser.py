@@ -148,7 +148,12 @@ def by_id(path: Path, exclude: tuple[str, ...] = ()) -> dict[int, str]:
         A dictionary of constant values to their names.
     """
     syms = load_constants(path)
-    return {v: k for k, v in syms.items() if k not in exclude}
+    out = {}
+    for name, value in syms.items():
+        if name in exclude or value in out:
+            continue
+        out[value] = name
+    return out
 
 
 if __name__ == "__main__":
