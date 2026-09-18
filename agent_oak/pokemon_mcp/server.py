@@ -7,6 +7,9 @@ from fastmcp.utilities.types import Image
 from pyboy import PyBoy
 
 from agent_oak.pokemon_mcp.emulator import grab_screen_png
+from agent_oak.pokemon_mcp.executor import (
+    advance_dialogue,
+)
 from agent_oak.pokemon_mcp.mappings import Button
 from agent_oak.pokemon_mcp.memory import (
     read_badges,
@@ -43,6 +46,22 @@ def build_server(
     mcp = FastMCP(
         name="agent-oak",
     )
+
+    @mcp.tool()
+    def advance_dialogue_tool(timeout_frames: int = 600) -> dict[str, str | bool]:
+        """Advances a dialogue until exhausted or yes/no question is reached.
+
+        Args:
+            timeout_frames: The maximum number of frames to wait before timing out.
+        Returns:
+            A dictionary containing the status and collected text.
+        """
+        with mem_lock:
+            return advance_dialogue(
+                pyboy=pyboy,
+                syms=symbols,
+                timeout_frames=timeout_frames,
+            )
 
     @mcp.tool()
     def get_party() -> list[Pokemon]:

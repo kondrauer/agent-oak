@@ -4,10 +4,30 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-_RE_CONST_DEF = re.compile(r"^\s*const_def\b(.*)$", re.IGNORECASE)
-_RE_CONST = re.compile(r"^\s*const\s+(\w+)", re.IGNORECASE)
-_RE_CONST_SKIP = re.compile(r"^\s*const_skip\b(.*)$", re.IGNORECASE)
-_RE_EQU = re.compile(r"^\s*(?:DEF\s+)?(\w+)\s+EQU\s+(.+)$", re.IGNORECASE)
+_RE_CONST_DEF = re.compile(
+    r"^\s*const_def\b(.*)$",
+    re.IGNORECASE,
+)
+_RE_CONST = re.compile(
+    r"^\s*const\s+(\w+)",
+    re.IGNORECASE,
+)
+_RE_ADD_TM_HM = re.compile(
+    r"^\s*(?:add_tm|add_hm)\s+(\w+)",
+    re.IGNORECASE,
+)
+_RE_MAP_CONST = re.compile(
+    r"^\s*map_const\s+(\w+)",
+    re.IGNORECASE,
+)
+_RE_CONST_SKIP = re.compile(
+    r"^\s*const_skip\b(.*)$",
+    re.IGNORECASE,
+)
+_RE_EQU = re.compile(
+    r"^\s*(?:DEF\s+)?(\w+)\s+EQU\s+(.+)$",
+    re.IGNORECASE,
+)
 _RE_CHARMAP = re.compile(
     r'^\s*charmap\s+"([^"]+)"\s*,\s*(.+)$',
     re.IGNORECASE,
@@ -60,7 +80,7 @@ def parse_asm_constants(text: str) -> dict[str, int]:
     Returns:
         A dictionary of constant names to their values.
     """
-    syms: dict[str, int] = {}
+    syms = {}
     counter = 0
 
     for line in text.splitlines():
@@ -71,6 +91,16 @@ def parse_asm_constants(text: str) -> dict[str, int]:
             continue
 
         if m := _RE_CONST.match(line):
+            syms[m.group(1)] = counter
+            counter += 1
+            continue
+
+        if m := _RE_ADD_TM_HM.match(line):
+            syms[m.group(1)] = counter
+            counter += 1
+            continue
+
+        if m := _RE_MAP_CONST.match(line):
             syms[m.group(1)] = counter
             counter += 1
             continue
@@ -122,4 +152,5 @@ def by_id(path: Path, exclude: tuple[str, ...] = ()) -> dict[int, str]:
 
 
 if __name__ == "__main__":
-    parse_asm_constants(Path("constants/pokemon_constants.asm").read_text())
+    dict = parse_asm_constants(Path("constants/map_constants.asm").read_text())
+    print(dict)
