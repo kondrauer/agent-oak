@@ -5,7 +5,13 @@ from typing import Literal
 
 from pyboy import PyBoy
 
-from agent_oak.mcp.models import (
+from agent_oak.memory.mappings import (
+    BADGES,
+    PokemonTypes,
+    StatusFlags,
+    Tilesets,
+)
+from agent_oak.memory.models import (
     BagItems,
     BattlePokemon,
     BattleState,
@@ -17,12 +23,6 @@ from agent_oak.mcp.models import (
     PlayerLocation,
     Pokemon,
     PokemonStats,
-)
-from agent_oak.memory.mappings import (
-    BADGES,
-    PokemonTypes,
-    StatusFlags,
-    Tilesets,
 )
 from agent_oak.parser.constants import by_id
 

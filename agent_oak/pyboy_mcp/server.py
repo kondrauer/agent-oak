@@ -8,8 +8,7 @@ from pyboy import PyBoy
 
 from agent_oak.executor.dialogue import advance_dialogue
 from agent_oak.executor.navigation import walk_to
-from agent_oak.mcp.emulator import grab_screen_png
-from agent_oak.mcp.models import (
+from agent_oak.memory.models import (
     BagItems,
     BattleState,
     Button,
@@ -26,6 +25,7 @@ from agent_oak.memory.read import (
     read_location,
     read_party,
 )
+from agent_oak.pyboy_mcp.emulator import grab_screen_png
 
 
 def build_server(

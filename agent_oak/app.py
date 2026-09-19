@@ -3,8 +3,8 @@
 from pathlib import Path
 from threading import Lock, Thread
 
-from agent_oak.mcp.emulator import create_emulator, load_symbols
-from agent_oak.mcp.server import build_server
+from agent_oak.pyboy_mcp.emulator import create_emulator, load_symbols
+from agent_oak.pyboy_mcp.server import build_server
 
 ROM_PATH = "pokemon-red.gb"
 SYM_PATH = "pokered.sym"
