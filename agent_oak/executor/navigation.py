@@ -2,17 +2,35 @@
 
 from pyboy import PyBoy
 
+from agent_oak.memory.mappings import TILESET_BASE
 from agent_oak.memory.read import (
     read_in_battle,
     read_is_dialogue_open,
     read_location,
+    read_npcs,
+    read_warps,
 )
+from agent_oak.parser.maps import load_blocksets, parse_collision_tile_ids
+
+BLOCKSETS = load_blocksets()
+COLLISION_TILE_IDS = parse_collision_tile_ids()
 
 DIRECTIONS = ("up", "down", "left", "right")
 OPPOSITE = {"up": "down", "down": "up", "left": "right", "right": "left"}
 WALK_HOLD_FRAMES = 12
 WALK_SETTLE_FRAMES = 8
 MAP_TRANSITION_SETTLE_FRAMES = 60
+
+WATER_TILE = 0x14
+CUT_TREE = {"overworld": 0x3D, "gym": 0x50}
+GRASS_TILE = {"overworld": 0x52, "forest": 0x20, "plateau": 0x45}
+LEDGE_SYMBOLS = {0x36: "v", 0x37: "v", 0x27: "<", 0x0D: ">", 0x1D: ">"}
+
+# Bottom-left tile of each 2x2 quadrant inside a 4x4 block, [qy][qx]
+QUADRANT_TILE = (
+    (4, 6),
+    (12, 14),
+)
 
 
 def walk_to(
@@ -113,3 +131,72 @@ def walk_to(
 def goto(waypoint: str):
     """Go to a waypoint."""
     pass
+
+
+def tile_symbol(tile_id: int, base: str) -> str:
+    """Map tile_id to a symbol."""
+    if base == "overworld" and tile_id in LEDGE_SYMBOLS:
+        return LEDGE_SYMBOLS[tile_id]
+    if tile_id == WATER_TILE:
+        return "~"
+    if tile_id == CUT_TREE.get(base):
+        return "T"
+    if tile_id == GRASS_TILE.get(base):
+        return '"'
+    if tile_id in COLLISION_TILE_IDS[base]:
+        return "."
+    return "#"
+
+
+def build_grid(
+    blocks,
+    width_blocks: int,
+    base: str,
+) -> list[list[str]]:
+    """Blocks (row-major, one byte each) -> grid of step cells, 2x2 per block."""
+    blockset = BLOCKSETS[base]
+    height_blocks = len(blocks) // width_blocks
+    grid = [["#"] * (width_blocks * 2) for _ in range(height_blocks * 2)]
+
+    for index, block_id in enumerate(blocks):
+        block_y, block_x = divmod(index, width_blocks)
+        tiles = blockset[block_id * 16 : (block_id + 1) * 16]
+        for qy in range(2):
+            for qx in range(2):
+                tile_id = tiles[QUADRANT_TILE[qy][qx]]
+                grid[block_y * 2 + qy][block_x * 2 + qx] = tile_symbol(tile_id, base)
+
+    return grid
+
+
+def render_grid(grid: list[list[str]]) -> str:
+    """Render a grid as string."""
+    width = len(grid[0])
+    lines = ["    " + " ".join(f"{x:>2}" for x in range(width))]
+    for y, row in enumerate(grid):
+        lines.append(f"{y:>3} " + " ".join(f"{c:>2}" for c in row))
+    return "\n".join(lines)
+
+
+def render_current_map(pyboy: PyBoy, syms: dict[str, int]) -> str:
+    """Render the current map as string."""
+    loc = read_location(pyboy=pyboy, syms=syms)
+    warps = read_warps(pyboy=pyboy, syms=syms)
+    npcs = read_npcs(pyboy=pyboy, syms=syms)
+    base = TILESET_BASE[loc.tileset_id]
+
+    grid = build_grid(loc.map.blocks, loc.map.width, base)
+
+    def place(x: int, y: int, symbol: str) -> None:
+        if 0 <= y < len(grid) and 0 <= x < len(grid[0]):
+            grid[y][x] = symbol
+
+    for warp in warps:
+        place(warp.x, warp.y, "D")
+    for npc in npcs:
+        place(npc.x, npc.y, "N")
+    place(loc.x, loc.y, "@")
+
+    legend = '@ you  N npc  D warp  . walkable  # blocked  " grass  ~ water  T tree  v<> ledge'  # noqa: E501
+    header = f"{loc.map.name} ({len(grid[0])}x{len(grid)})  you: ({loc.x}, {loc.y})"
+    return f"{header}\n{legend}\n\n{render_grid(grid)}"

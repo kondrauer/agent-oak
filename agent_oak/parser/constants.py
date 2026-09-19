@@ -16,10 +16,6 @@ _RE_ADD_TM_HM = re.compile(
     r"^\s*(?:add_tm|add_hm)\s+(\w+)",
     re.IGNORECASE,
 )
-_RE_MAP_CONST = re.compile(
-    r"^\s*map_const\s+(\w+)",
-    re.IGNORECASE,
-)
 _RE_CONST_SKIP = re.compile(
     r"^\s*const_skip\b(.*)$",
     re.IGNORECASE,
@@ -96,11 +92,6 @@ def parse_asm_constants(text: str) -> dict[str, int]:
             continue
 
         if m := _RE_ADD_TM_HM.match(line):
-            syms[m.group(1)] = counter
-            counter += 1
-            continue
-
-        if m := _RE_MAP_CONST.match(line):
             syms[m.group(1)] = counter
             counter += 1
             continue

@@ -13,6 +13,33 @@ BADGES = [
     ("earth", "Giovanni", "Viridian City"),
 ]
 
+TILESET_BASE = {
+    0: "overworld",
+    1: "reds_house",
+    2: "pokecenter",
+    3: "forest",
+    4: "reds_house",
+    5: "gym",
+    6: "pokecenter",
+    7: "gym",
+    8: "house",
+    9: "gate",
+    10: "gate",
+    11: "underground",
+    12: "gate",
+    13: "ship",
+    14: "ship_port",
+    15: "cemetery",
+    16: "interior",
+    17: "cavern",
+    18: "lobby",
+    19: "mansion",
+    20: "lab",
+    21: "club",
+    22: "facility",
+    23: "plateau",
+}
+
 
 class BattleType(int, Enum):
     """Battle type enumeration."""

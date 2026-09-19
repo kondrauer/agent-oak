@@ -3,6 +3,7 @@
 from pathlib import Path
 from threading import Lock, Thread
 
+from agent_oak.executor.navigation import render_current_map
 from agent_oak.pyboy_mcp.emulator import create_emulator, load_symbols
 from agent_oak.pyboy_mcp.server import build_server
 
@@ -33,6 +34,8 @@ if __name__ == "__main__":
         while True:
             with mem_lock:
                 still_running = pyboy.tick()
+                # print(read_location(pyboy, syms))
+                print(render_current_map(pyboy, syms))
             if not still_running:
                 break
     finally:

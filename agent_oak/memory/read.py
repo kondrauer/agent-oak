@@ -18,24 +18,29 @@ from agent_oak.memory.models import (
     BattleType,
     Dialogue,
     Item,
+    Npc,
     ObtainedBadge,
     ObtainedBadges,
     PlayerLocation,
     Pokemon,
     PokemonStats,
+    Warp,
 )
 from agent_oak.parser.constants import by_id
+from agent_oak.parser.maps import parse_maps
 
 PARTY_STRUCT_LEN = 44
 NAME_LEN = 11
 TILEMAP_WIDTH = 20
 CURSOR_TILE = 0xED
 WY_HIDDEN = 0x90  # hWY value when no textbox/menu window is being drawn
+SPRITE_STRUCT_LEN = 0x10
+MAX_SPRITES = 16  # slot 0 is the player
 
 SPECIES = by_id(Path("constants/pokemon_constants.asm"))
 MOVES = by_id(Path("constants/move_constants.asm"))
 ITEMS = by_id(Path("constants/item_constants.asm"))
-MAPS = by_id(Path("constants/map_constants.asm"))
+MAPS_BY_NAME, MAPS_BY_ID = parse_maps()
 CHARMAP = by_id(Path("constants/charmap.asm"))
 
 BattlePokemonPrefix = Literal["wBattleMon", "wEnemyMon"]
@@ -316,6 +321,44 @@ def read_party(
     return party
 
 
+def read_warps(pyboy: PyBoy, syms: dict[str, int]) -> list[Warp]:
+    """Read current warps."""
+    count = pyboy.memory[syms["wNumberOfWarps"]]
+    base = syms["wWarpEntries"]
+    warps = []
+    for i in range(count):
+        y, x, dest_warp, dest_map = pyboy.memory[base + i * 4 : base + i * 4 + 4]
+        warps.append(Warp(x=x, y=y, dest_warp=dest_warp, dest_map=dest_map))
+    return warps
+
+
+def read_npcs(pyboy: PyBoy, syms: dict[str, int]) -> list[Npc]:
+    """Read current NPCs."""
+    count = pyboy.memory[syms["wNumSprites"]]
+    data1 = syms["wSprite01StateData1"]
+    data2 = syms["wSprite01StateData2"]
+
+    npcs = []
+    for i in range(min(count, MAX_SPRITES - 1)):
+        s1 = data1 + i * SPRITE_STRUCT_LEN
+        s2 = data2 + i * SPRITE_STRUCT_LEN
+
+        if pyboy.memory[s1 + 0x00] == 0:  # picture id 0 = empty slot
+            continue
+        if pyboy.memory[s1 + 0x02] == 0xFF:  # image index $FF = hidden
+            continue
+
+        npcs.append(
+            Npc(
+                slot=i + 1,
+                y=pyboy.memory[s2 + 0x04] - 4,  # SPRITESTATEDATA2_MAPY
+                x=pyboy.memory[s2 + 0x05] - 4,  # SPRITESTATEDATA2_MAPX
+                facing=pyboy.memory[s1 + 0x09],  # 0 down, 4 up, 8 left, $C right
+            )
+        )
+    return npcs
+
+
 def read_location(
     pyboy: PyBoy,
     syms: dict[str, int],
@@ -332,8 +375,9 @@ def read_location(
     tileset_id = pyboy.memory[syms["wCurMapTileset"]]
     return PlayerLocation(
         map_id=map_id,
-        map_name=MAPS[map_id],
-        tileset=Tilesets(tileset_id).name,
+        map=MAPS_BY_ID[map_id],
+        tileset_name=Tilesets(tileset_id).name,
+        tileset_id=tileset_id,
         x=pyboy.memory[syms["wXCoord"]],
         y=pyboy.memory[syms["wYCoord"]],
     )
