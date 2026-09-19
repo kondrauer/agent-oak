@@ -5,14 +5,7 @@ from typing import Literal
 
 from pyboy import PyBoy
 
-from agent_oak.pokemon_mcp.constant_parser import by_id
-from agent_oak.pokemon_mcp.mappings import (
-    BADGES,
-    PokemonTypes,
-    StatusFlags,
-    Tilesets,
-)
-from agent_oak.pokemon_mcp.models import (
+from agent_oak.mcp.models import (
     BagItems,
     BattlePokemon,
     BattleState,
@@ -25,17 +18,25 @@ from agent_oak.pokemon_mcp.models import (
     Pokemon,
     PokemonStats,
 )
+from agent_oak.memory.mappings import (
+    BADGES,
+    PokemonTypes,
+    StatusFlags,
+    Tilesets,
+)
+from agent_oak.parser.constants import by_id
 
 PARTY_STRUCT_LEN = 44
 NAME_LEN = 11
 TILEMAP_WIDTH = 20
+CURSOR_TILE = 0xED
+WY_HIDDEN = 0x90  # hWY value when no textbox/menu window is being drawn
 
 SPECIES = by_id(Path("constants/pokemon_constants.asm"))
 MOVES = by_id(Path("constants/move_constants.asm"))
 ITEMS = by_id(Path("constants/item_constants.asm"))
 MAPS = by_id(Path("constants/map_constants.asm"))
 CHARMAP = by_id(Path("constants/charmap.asm"))
-print(CHARMAP)
 
 BattlePokemonPrefix = Literal["wBattleMon", "wEnemyMon"]
 
@@ -197,6 +198,61 @@ def decode_status(b: int) -> list[str]:
         if b & mask:
             out.append(name)
     return out
+
+
+def read_yes_no_prompt_detected(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> bool:
+    """Check if a yes/no prompt is currently open.
+
+    Args:
+        pyboy: The PyBoy instance to read memory from.
+        syms: A dictionary of constant names to their values.
+    Returns:
+        True if a yes/no prompt is open, False otherwise.
+    """
+    base = syms["wTileMap"]
+    grid = bytes(pyboy.memory[base : base + 20 * 18])
+    text = decode_text(grid)
+    return "YES" in text and "NO" in text and CURSOR_TILE in grid
+
+
+def read_is_dialogue_open(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> bool:
+    """Check if a dialogue box or menu window is currently open.
+
+    Reads hWY, the shadow copy of the window Y-position register, instead
+    of decoding wTileMap: the tilemap buffer can retain stale text bytes
+    from an earlier, now-closed dialogue, which would otherwise be
+    misread as an open textbox. hWY sits at WY_HIDDEN whenever the window
+    layer is pushed off-screen, and at a lower value whenever a
+    dialogue/menu window is actually being drawn.
+
+    Args:
+        pyboy: The PyBoy instance to read memory from.
+        syms: A dictionary of constant names to their values.
+    Returns:
+        True if a dialogue/menu box is open, False otherwise.
+    """
+    return pyboy.memory[syms["hWY"]] != WY_HIDDEN
+
+
+def read_in_battle(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> bool:
+    """Check if the player is currently in a battle.
+
+    Args:
+        pyboy: The PyBoy instance to read memory from.
+        syms: A dictionary of constant names to their values.
+    Returns:
+        True if a battle is in progress, False otherwise.
+    """
+    return pyboy.memory[syms["wIsInBattle"]] != 0
 
 
 def read_dialogue_text(

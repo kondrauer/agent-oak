@@ -6,27 +6,25 @@ from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
 from pyboy import PyBoy
 
-from agent_oak.pokemon_mcp.emulator import grab_screen_png
-from agent_oak.pokemon_mcp.executor import (
-    advance_dialogue,
-    walk_to,
+from agent_oak.executor.dialogue import advance_dialogue
+from agent_oak.executor.navigation import walk_to
+from agent_oak.mcp.emulator import grab_screen_png
+from agent_oak.mcp.models import (
+    BagItems,
+    BattleState,
+    Button,
+    Dialogue,
+    ObtainedBadges,
+    PlayerLocation,
+    Pokemon,
 )
-from agent_oak.pokemon_mcp.mappings import Button
-from agent_oak.pokemon_mcp.memory import (
+from agent_oak.memory.read import (
     read_badges,
     read_bag,
     read_battle_state,
     read_dialogue_text,
     read_location,
     read_party,
-)
-from agent_oak.pokemon_mcp.models import (
-    BagItems,
-    BattleState,
-    Dialogue,
-    ObtainedBadges,
-    PlayerLocation,
-    Pokemon,
 )
 
 

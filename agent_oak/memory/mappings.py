@@ -41,19 +41,6 @@ class PokemonTypes(int, Enum):
     DRAGON = 0x1A
 
 
-class Button(str, Enum):
-    """Button name enumeration."""
-
-    A = "a"
-    B = "b"
-    START = "start"
-    SELECT = "select"
-    UP = "up"
-    DOWN = "down"
-    LEFT = "left"
-    RIGHT = "right"
-
-
 class Tilesets(int, Enum):
     """Tileset id enumeration."""
 

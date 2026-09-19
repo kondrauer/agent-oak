@@ -1,12 +1,27 @@
 """Data models for Pokemon MCP memory parsing."""
 
+from enum import Enum
+
 from pydantic import BaseModel, Field, field_serializer
 
-from agent_oak.pokemon_mcp.mappings import (
+from agent_oak.memory.mappings import (
     BattleType,
     PokemonTypes,
     StatusFlags,
 )
+
+
+class Button(str, Enum):
+    """Button name enumeration."""
+
+    A = "a"
+    B = "b"
+    START = "start"
+    SELECT = "select"
+    UP = "up"
+    DOWN = "down"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class Dialogue(BaseModel):
