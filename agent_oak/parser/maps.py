@@ -67,8 +67,8 @@ def parse_maps(
                         name=name,
                         blk_name=name,
                         blocks=data,
-                        width=int(match.group(3)),
-                        height=int(match.group(2)),
+                        width=int(match.group(2)),
+                        height=int(match.group(3)),
                     )
 
                     maps_by_name[name] = map
