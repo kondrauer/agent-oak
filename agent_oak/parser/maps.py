@@ -47,8 +47,16 @@ def parse_maps(
     map_constants: Path = Path("constants/map_constants.asm"),
 ) -> tuple[dict[str, Map], dict[int, Map]]:
     """Parse map_constants.asm file."""
-    maps_by_name: dict[str, Map] = {}
-    maps_by_id: dict[int, Map] = {}
+    any_map = Map(
+        name="ANY_MAP",
+        blk_name="any.blk",
+        blocks=b"",
+        width=0,
+        height=0,
+    )
+
+    maps_by_name: dict[str, Map] = {"ANY_MAP": any_map}
+    maps_by_id: dict[int, Map] = {255: any_map}
 
     with map_constants.open() as file:
         for line in file.readlines():

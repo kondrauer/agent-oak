@@ -328,7 +328,20 @@ def read_warps(pyboy: PyBoy, syms: dict[str, int]) -> list[Warp]:
     warps = []
     for i in range(count):
         y, x, dest_warp, dest_map = pyboy.memory[base + i * 4 : base + i * 4 + 4]
-        warps.append(Warp(x=x, y=y, dest_warp=dest_warp, dest_map=dest_map))
+
+        if dest_map == 0xFF:
+            actual_dest_map = pyboy.memory[syms["wLastMap"]]
+        else:
+            actual_dest_map = dest_map
+
+        warps.append(
+            Warp(
+                x=x,
+                y=y,
+                dest_warp=dest_warp,
+                dest_map=actual_dest_map,
+            )
+        )
     return warps
 
 

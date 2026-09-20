@@ -4,6 +4,7 @@ from pyboy import PyBoy
 
 from agent_oak.memory.mappings import TILESET_BASE
 from agent_oak.memory.read import (
+    MAPS_BY_ID,
     read_in_battle,
     read_is_dialogue_open,
     read_location,
@@ -168,12 +169,13 @@ def build_grid(
     blocks: bytes,
     width_blocks: int,
     base: str,
-) -> list[list[str]]:
+) -> tuple[list[list[str]], list[list[int]]]:
     """Blocks (row-major, one byte each) -> grid of step cells, 2x2 per block."""
     blockset = BLOCKSETS[base]
     height_blocks = len(blocks) // width_blocks
     # grid in step coordinates is 2Wx2H, as one block WxH holds 2x2 step squares
-    grid = [["#"] * (width_blocks * 2) for _ in range(height_blocks * 2)]
+    grid_str = [["#"] * (width_blocks * 2) for _ in range(height_blocks * 2)]
+    grid_id = [[-1] * (width_blocks * 2) for _ in range(height_blocks * 2)]
 
     for index, block_id in enumerate(blocks):
         # y = index//W, x=index%W
@@ -188,9 +190,16 @@ def build_grid(
                 # get tile id that is checked for collisions
                 # (bottom left of each quadrant)
                 tile_id = tiles[QUADRANT_TILE[qy][qx]]
-                grid[block_y * 2 + qy][block_x * 2 + qx] = tile_symbol(tile_id, base)
+                grid_id_x = block_x * 2 + qx
+                grid_id_y = block_y * 2 + qy
+                grid_str[grid_id_y][grid_id_x] = tile_symbol(
+                    tile_id,
+                    base,
+                )
 
-    return grid
+                grid_id[grid_id_y][grid_id_x] = tile_id
+
+    return grid_str, grid_id
 
 
 def render_grid(grid: list[list[str]]) -> str:
@@ -219,7 +228,7 @@ def render_current_map(pyboy: PyBoy, syms: dict[str, int]) -> str:
     npcs = read_npcs(pyboy=pyboy, syms=syms)
     base = TILESET_BASE[loc.tileset_id]
 
-    grid = build_grid(
+    grid, _ = build_grid(
         blocks=loc.map.blocks,
         width_blocks=loc.map.width,
         base=base,
@@ -250,4 +259,8 @@ def render_current_map(pyboy: PyBoy, syms: dict[str, int]) -> str:
 
     legend = '@ you  N npc  D warp  . walkable  # blocked  " grass  ~ water  T tree  v<> ledge'  # noqa: E501
     header = f"{loc.map.name} ({len(grid[0])}x{len(grid)})  you: ({loc.x}, {loc.y})"
-    return f"{header}\n{legend}\n\n{render_grid(grid)}"
+    warps_str = "Warps: " + " ".join(
+        [f"({warp.x}, {warp.y}) -> {MAPS_BY_ID[warp.dest_map].name}" for warp in warps]
+    )
+
+    return f"{header}\n{legend}\n{warps_str}\n{render_grid(grid)}"
