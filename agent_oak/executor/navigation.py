@@ -1,5 +1,6 @@
 """Functions for exectuing navigation."""
 
+from networkx import MultiDiGraph
 from pyboy import PyBoy
 
 from agent_oak.memory.read import (
@@ -7,12 +8,44 @@ from agent_oak.memory.read import (
     read_is_dialogue_open,
     read_location,
 )
+from agent_oak.parser.models import GameMap
 
 DIRECTIONS = ("up", "down", "left", "right")
 OPPOSITE = {"up": "down", "down": "up", "left": "right", "right": "left"}
 WALK_HOLD_FRAMES = 12
 WALK_SETTLE_FRAMES = 8
 MAP_TRANSITION_SETTLE_FRAMES = 60
+
+
+def build_game_map_graph(game_maps: dict[str, GameMap]) -> MultiDiGraph:
+    """Build a graph out of the game_maps dict."""
+    G = MultiDiGraph()
+
+    for m in game_maps.values():
+        G.add_node(m.const, model=m)
+
+        for c in m.connections:
+            G.add_edge(
+                m.const,
+                c.target_const,
+                kind="connection",
+                direction=c.direction,
+                offset=c.offset,
+            )
+
+        for i, w in enumerate(m.warps):
+            if w.dest_map != "LAST_MAP":
+                G.add_edge(
+                    m.const,
+                    w.dest_map,
+                    kind="warp",
+                    src_warp=i,
+                    dest_warp=w.dest_warp,
+                    x=w.x,
+                    y=w.y,
+                )
+
+    return G
 
 
 def walk_to(
