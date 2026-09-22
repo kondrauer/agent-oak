@@ -104,6 +104,19 @@ class GameMapConstant(BaseModel):
     height: int
 
 
+# TODO: implement parsind for Tilesets
+class Tileset(BaseModel):
+    """Tileset model."""
+
+    name: str
+    blocks: bytes
+    collision: set[int]
+    water: set[int] = Field(default_factory=set)
+    pair_collisions_land: set[frozenset[int]] = Field(default_factory=set)
+    pair_collisions_water: set[frozenset[int]] = Field(default_factory=set)
+    ledges: list[tuple[Direction, int, int]] = Field(default_factory=list)
+
+
 class GameMap(GameMapConstant):
     """Game Map model."""
 
