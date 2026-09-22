@@ -19,31 +19,9 @@ from agent_oak.parser.models import (
 )
 
 _RE_MAP_CONST_COMPLETE = re.compile(
-    pattern=r"^\s*map_const\s+(\w+),\s*(\d*),\s*(\d*)\s*;\s*\$(\d{2})",
+    pattern=r"^\s*map_const\s+(\w+),\s*(\d*),\s*(\d*)\s*;\s*\$([\w\d]{2})",
     flags=re.IGNORECASE,
 )
-
-
-def _convert_to_label(
-    strings: list[str],
-) -> str:
-    """Convert a constant identifier to its label equivalent."""
-    tilecase = []
-
-    for s in strings:
-        if re.fullmatch(
-            pattern=r"\d*F",
-            string=s,
-        ):
-            tilecase.append(s)
-        elif s == "SS":
-            tilecase.append(s)
-        elif s == "COPY":
-            continue
-        else:
-            tilecase.append(s.title())
-
-    return "".join(tilecase)
 
 
 def _classify_map_object(args: list[str]) -> MapObject:
@@ -198,11 +176,13 @@ def parse_maps(
                     map_object = _classify_map_object(args=args)
                     map_objects.append(map_object)
 
+        map_const = consts[const]
+
         game_map = GameMap(
-            const=const,
-            idx=idx,
-            width=width,
-            height=height,
+            const=map_const.const,
+            idx=map_const.idx,
+            width=map_const.width,
+            height=map_const.height,
             label=label,
             tileset=tileset,
             blocks=data,
@@ -213,7 +193,7 @@ def parse_maps(
         )
 
         maps_by_name[const] = game_map
-        maps_by_id[idx] = game_map
+        maps_by_id[map_const.idx] = game_map
 
     return maps_by_name, maps_by_id
 

@@ -51,6 +51,7 @@ class ObjBase(BaseModel):
     text_id: str
 
 
+# Optional: remove redunant NPC model in memory/models.py
 class Npc(ObjBase):
     """Npc map object."""
 
