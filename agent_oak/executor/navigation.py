@@ -221,7 +221,10 @@ def _place(
         grid[y][x] = symbol
 
 
-def render_current_map(pyboy: PyBoy, syms: dict[str, int]) -> str:
+def render_current_map(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> str:
     """Render the current map as string."""
     loc = read_location(pyboy=pyboy, syms=syms)
     warps = read_warps(pyboy=pyboy, syms=syms)
@@ -258,9 +261,9 @@ def render_current_map(pyboy: PyBoy, syms: dict[str, int]) -> str:
     )
 
     legend = '@ you  N npc  D warp  . walkable  # blocked  " grass  ~ water  T tree  v<> ledge'  # noqa: E501
-    header = f"{loc.map.name} ({len(grid[0])}x{len(grid)})  you: ({loc.x}, {loc.y})"
+    header = f"{loc.map.const} ({len(grid[0])}x{len(grid)})  you: ({loc.x}, {loc.y})"
     warps_str = "Warps: " + " ".join(
-        [f"({warp.x}, {warp.y}) -> {MAPS_BY_ID[warp.dest_map].name}" for warp in warps]
+        [f"({warp.x}, {warp.y}) -> {MAPS_BY_ID[warp.dest_map].const}" for warp in warps]
     )
 
     return f"{header}\n{legend}\n{warps_str}\n{render_grid(grid)}"

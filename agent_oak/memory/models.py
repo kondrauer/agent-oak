@@ -9,7 +9,7 @@ from agent_oak.memory.mappings import (
     PokemonTypes,
     StatusFlags,
 )
-from agent_oak.parser.maps import Map
+from agent_oak.parser.maps import GameMap
 
 
 class Button(str, Enum):
@@ -156,7 +156,7 @@ class PlayerLocation(BaseModel):
     """Player location data model."""
 
     map_id: int
-    map: Map
+    map: GameMap
     tileset_name: str
     tileset_id: int
     x: int

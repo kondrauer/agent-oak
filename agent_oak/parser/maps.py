@@ -1,9 +1,22 @@
 """Parse map blk files."""
 
+import pprint
 import re
 from pathlib import Path
 
-from pydantic import BaseModel
+from agent_oak.parser.models import (
+    Connection,
+    Direction,
+    GameMap,
+    GameMapConstant,
+    ItemBall,
+    MapObject,
+    Npc,
+    Sign,
+    StaticMon,
+    Trainer,
+    Warp,
+)
 
 _RE_MAP_CONST_COMPLETE = re.compile(
     pattern=r"^\s*map_const\s+(\w+),\s*(\d*),\s*(\d*)\s*;\s*\$(\d{2})",
@@ -11,20 +24,10 @@ _RE_MAP_CONST_COMPLETE = re.compile(
 )
 
 
-class Map(BaseModel):
-    """Map datastructure."""
-
-    name: str
-    blk_name: str
-    blocks: bytes
-    width: int
-    height: int
-
-
-def _convert_to_blk_name(
+def _convert_to_label(
     strings: list[str],
 ) -> str:
-    """Convert a constant identifier to its .blk-file name."""
+    """Convert a constant identifier to its label equivalent."""
     tilecase = []
 
     for s in strings:
@@ -43,46 +46,174 @@ def _convert_to_blk_name(
     return "".join(tilecase)
 
 
+def _classify_map_object(args: list[str]) -> MapObject:
+    x, y, sprite, move, facing, text = args[:6]
+    base = dict(
+        x=int(x), y=int(y), sprite=sprite, movement=move, facing=facing, text_id=text
+    )
+    match args[6:]:
+        case []:
+            return Npc(**base)  # ty: ignore
+        case [item]:
+            return ItemBall(**base, item=item)  # ty: ignore
+        case [a, b] if a.startswith("OPP_"):
+            return Trainer(**base, trainer_class=a, trainer_num=int(b))  # ty: ignore
+        case [a, b]:
+            return StaticMon(**base, species=a, level=int(b))  # ty: ignore
+    raise ValueError(args)
+
+
 def parse_maps(
     map_constants: Path = Path("constants/map_constants.asm"),
-) -> tuple[dict[str, Map], dict[int, Map]]:
-    """Parse map_constants.asm file."""
-    any_map = Map(
-        name="ANY_MAP",
-        blk_name="any.blk",
-        blocks=b"",
-        width=0,
-        height=0,
-    )
-
-    maps_by_name: dict[str, Map] = {"ANY_MAP": any_map}
-    maps_by_id: dict[int, Map] = {255: any_map}
+    map_headers_folder: Path = Path("data/maps/headers"),
+    map_objects_folder: Path = Path("data/maps/objects"),
+) -> tuple[dict[str, GameMap], dict[int, GameMap]]:
+    """Parse all informations about maps available."""
+    consts: dict[str, GameMapConstant] = {}
 
     with map_constants.open() as file:
         for line in file.readlines():
             if match := _RE_MAP_CONST_COMPLETE.match(line):
                 name = match.group(1)
                 idx = int(match.group(4), 16)
-                name_split = name.split("_")
-                blk_name = _convert_to_blk_name(strings=name_split)
-                blk_path = Path(f"maps/{blk_name}.blk")
+                width = int(match.group(2))
+                height = int(match.group(3))
 
-                try:
-                    with blk_path.open(mode="rb") as file:
-                        data = file.read()
+                consts[name] = GameMapConstant(
+                    const=name,
+                    idx=idx,
+                    width=width,
+                    height=height,
+                )
 
-                    map = Map(
-                        name=name,
-                        blk_name=name,
-                        blocks=data,
-                        width=int(match.group(2)),
-                        height=int(match.group(3)),
+    last_map = GameMap(
+        const="LAST_MAP",
+        idx=0xFF,
+        label="any.blk",
+        tileset="any",
+        blocks=b"",
+        width=0,
+        height=0,
+    )
+
+    maps_by_name: dict[str, GameMap] = {"LAST_MAP": last_map}
+    maps_by_id: dict[int, GameMap] = {255: last_map}
+
+    map_header_files = sorted(map_headers_folder.glob(pattern="*"))
+
+    for map_header_file in map_header_files:
+        connections: list[Connection] = []
+        warps: list[Warp] = []
+        signs: list[Sign] = []
+        map_objects: list[MapObject] = []
+
+        with map_header_file.open() as file:
+            map_header_line = file.readline().strip()
+            label, const, tileset = (
+                map_header_line.replace(
+                    "map_header",
+                    "",
+                )
+                .replace(" ", "")
+                .split(",")
+            )
+
+            blk_path = Path(f"maps/{label}.blk")
+            try:
+                with blk_path.open(mode="rb") as blk_file:
+                    data = blk_file.read()
+            except FileNotFoundError:
+                print(f"No blk-File found for {const}, looked for {label}")
+                data = b""
+
+            for line in file.readlines():
+                line = line.split(";", 1)[0].strip()
+                if line.startswith("connection"):
+                    direction, target_label, target_const, offset = (
+                        line.replace(
+                            "connection",
+                            "",
+                        )
+                        .replace(" ", "")
+                        .split(",")
                     )
 
-                    maps_by_name[name] = map
-                    maps_by_id[idx] = map
-                except FileNotFoundError:
-                    print(f"No blk-File found for {name}, looked for {blk_name}")
+                    connections.append(
+                        Connection(
+                            direction=Direction(direction),
+                            target_const=target_const,
+                            target_label=target_label,
+                            offset=int(offset),
+                        )
+                    )
+
+        with (map_objects_folder / f"{label}.asm").open() as file:
+            for line in file.readlines():
+                line = line.split(";", 1)[0].strip()
+
+                if line.startswith("warp_event"):
+                    x, y, dest_map, dest_warp = (
+                        line.replace(
+                            "warp_event",
+                            "",
+                        )
+                        .replace(" ", "")
+                        .split(",")
+                    )
+
+                    warps.append(
+                        Warp(
+                            x=int(x),
+                            y=int(y),
+                            dest_map=dest_map,
+                            dest_warp=int(dest_warp),
+                        )
+                    )
+                elif line.startswith("bg_event"):
+                    x, y, text_id = (
+                        line.replace(
+                            "bg_event",
+                            "",
+                        )
+                        .replace(" ", "")
+                        .split(",")
+                    )
+
+                    signs.append(
+                        Sign(
+                            x=int(x),
+                            y=int(y),
+                            text_id=text_id,
+                        )
+                    )
+                elif line.startswith("object_event"):
+                    args = (
+                        line.replace(
+                            "object_event",
+                            "",
+                        )
+                        .replace(" ", "")
+                        .split(",")
+                    )
+                    map_object = _classify_map_object(args=args)
+                    map_objects.append(map_object)
+
+        game_map = GameMap(
+            const=const,
+            idx=idx,
+            width=width,
+            height=height,
+            label=label,
+            tileset=tileset,
+            blocks=data,
+            connections=connections,
+            warps=warps,
+            map_objects=map_objects,
+            signs=signs,
+        )
+
+        maps_by_name[const] = game_map
+        maps_by_id[idx] = game_map
 
     return maps_by_name, maps_by_id
 
@@ -135,4 +266,4 @@ def load_blocksets(
 
 
 if __name__ == "__main__":
-    print(parse_maps())
+    pprint.pprint(parse_maps())
