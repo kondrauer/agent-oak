@@ -11,4 +11,6 @@ wheels/
 
 # Misc
 *.gb
+*.gb.*
 *.code-workspace
+TODO

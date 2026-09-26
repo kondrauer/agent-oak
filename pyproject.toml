@@ -5,8 +5,12 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "fastmcp>=3.4.0",
+    "matplotlib>=3.11.2",
+    "networkx>=3.7",
     "pillow>=12.2.0",
-    "pyboy>=2.7.1",
+    "pyboy>=2.7.0,<2.7.1",
+    "pygraphviz>=2.0.2",
 ]
 
 [dependency-groups]
