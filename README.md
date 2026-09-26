@@ -50,7 +50,8 @@ Then point any MCP client at the server. `.vscode/mcp.json` has a ready-made con
 - [ ] Battle actions (use move, switch, run)
 - [ ] Talk-to-NPC and menu/item actions
 - [ ] Interrupt handling (wild battles, dialogues) during multi-step actions
-- [ ] Goal and memory layer for long-horizon play
+- [ ] Objective layer: let the LLM query what it has achieved (badges, key items, story flags) and what it still needs to do next
+- [ ] Memory layer for long-horizon play
 - [ ] Tests
 
 ## Credits
