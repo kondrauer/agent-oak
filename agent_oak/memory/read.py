@@ -27,7 +27,7 @@ from agent_oak.memory.models import (
     Warp,
 )
 from agent_oak.parser.constants import by_id
-from agent_oak.parser.maps import parse_maps
+from agent_oak.parser.models import GameMap
 
 PARTY_STRUCT_LEN = 44
 NAME_LEN = 11
@@ -40,7 +40,6 @@ MAX_SPRITES = 16  # slot 0 is the player
 SPECIES = by_id(Path("constants/pokemon_constants.asm"))
 MOVES = by_id(Path("constants/move_constants.asm"))
 ITEMS = by_id(Path("constants/item_constants.asm"))
-MAPS_BY_NAME, MAPS_BY_ID = parse_maps()
 CHARMAP = by_id(Path("constants/charmap.asm"))
 
 BattlePokemonPrefix = Literal["wBattleMon", "wEnemyMon"]
@@ -375,12 +374,14 @@ def read_npcs(pyboy: PyBoy, syms: dict[str, int]) -> list[Npc]:
 def read_location(
     pyboy: PyBoy,
     syms: dict[str, int],
+    maps_by_id: dict[int, GameMap],
 ) -> PlayerLocation:
     """Read the player's location from the emulator's memory.
 
     Args:
         pyboy: The emulator instance to read from.
         syms: The symbol table mapping names to addresses.
+        maps_by_id: Mapping of GameMaps to respective id.
     Returns:
         A PlayerLocation object representing the player's location.
     """
@@ -388,7 +389,7 @@ def read_location(
     tileset_id = pyboy.memory[syms["wCurMapTileset"]]
     return PlayerLocation(
         map_id=map_id,
-        map=MAPS_BY_ID[map_id],
+        map=maps_by_id[map_id],
         tileset_name=Tilesets(tileset_id).name,
         tileset_id=tileset_id,
         x=pyboy.memory[syms["wXCoord"]],

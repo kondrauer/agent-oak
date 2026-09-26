@@ -1,10 +1,14 @@
 """Emulator state module."""
 
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from io import BytesIO
 from pathlib import Path
+from threading import Lock
 
 from pyboy import PyBoy
+from pyboy.utils import WindowEvent
 
 
 def create_emulator(rom_path: str) -> PyBoy:
@@ -17,6 +21,32 @@ def create_emulator(rom_path: str) -> PyBoy:
     )
 
     return pyboy
+
+
+@contextmanager
+def running(pyboy: PyBoy, mem_lock: Lock) -> Iterator[None]:
+    """Let a paused emulator advance only for the duration of the block.
+
+    In agent mode the emulator stays paused between tool calls, so the game
+    does not drift while the LLM is thinking. If it is already running
+    (manual mode, or unpaused with P), this only takes the lock.
+
+    Args:
+        pyboy: The emulator instance.
+        mem_lock: A lock to synchronize access to the emulator's memory.
+    """
+    with mem_lock:
+        was_paused = pyboy.paused
+        if was_paused:
+            # applied at the start of the next tick
+            pyboy.send_input(WindowEvent.UNPAUSE)
+        try:
+            yield
+        finally:
+            if was_paused:
+                pyboy.send_input(WindowEvent.PAUSE)
+                # applies the pause without advancing a frame
+                pyboy.tick()
 
 
 def load_symbols(path: Path) -> dict[str, int]:

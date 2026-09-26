@@ -7,7 +7,6 @@ from fastmcp.utilities.types import Image
 from pyboy import PyBoy
 
 from agent_oak.executor.dialogue import advance_dialogue
-from agent_oak.executor.navigation import walk_to
 from agent_oak.memory.models import (
     BagItems,
     BattleState,
@@ -25,12 +24,14 @@ from agent_oak.memory.read import (
     read_location,
     read_party,
 )
-from agent_oak.pyboy_mcp.emulator import grab_screen_png
+from agent_oak.parser.models import GameMap
+from agent_oak.pyboy_mcp.emulator import grab_screen_png, running
 
 
 def build_server(
     pyboy: PyBoy,
     symbols: dict[str, int],
+    maps_by_id: dict[int, GameMap],
     mem_lock: Lock,
 ) -> FastMCP:
     """Build the MCP server with the given emulator and symbols.
@@ -38,6 +39,7 @@ def build_server(
     Args:
         pyboy: The emulator instance to read from.
         symbols: The symbol table mapping names to addresses.
+        maps_by_id: Parsed game maps keyed by map id.
         mem_lock: A lock to synchronize access to the emulator's memory.
     Returns:
         An instance of FastMCP with the defined tools.
@@ -55,7 +57,7 @@ def build_server(
         Returns:
             A dictionary containing the status and collected text.
         """
-        with mem_lock:
+        with running(pyboy=pyboy, mem_lock=mem_lock):
             return advance_dialogue(
                 pyboy=pyboy,
                 syms=symbols,
@@ -64,28 +66,9 @@ def build_server(
 
     @mcp.tool()
     def walk_to_tool(x: int, y: int, max_steps: int = 150) -> dict[str, object]:
-        """Walk toward a tile (x, y) on the current map.
-
-        Moves greedily toward the target, one tile at a time, and stops on
-        arrival, a map change (e.g. stairs or a door were used), a battle
-        or dialogue interrupt, or if no direction makes further progress.
-
-        Args:
-            x: Target x coordinate on the current map.
-            y: Target y coordinate on the current map.
-            max_steps: Maximum number of tile-moves to attempt before giving up.
-        Returns:
-            A dictionary with a status
-                (arrived/map_changed/interupt/stuck/timeout) and final location.
-        """
-        with mem_lock:
-            return walk_to(
-                pyboy=pyboy,
-                syms=symbols,
-                x=x,
-                y=y,
-                max_steps=max_steps,
-            )
+        """Not Implemented."""
+        with running(pyboy=pyboy, mem_lock=mem_lock):
+            return {}
 
     @mcp.tool()
     def get_party() -> list[Pokemon]:
@@ -111,6 +94,7 @@ def build_server(
             return read_location(
                 pyboy=pyboy,
                 syms=symbols,
+                maps_by_id=maps_by_id,
             )
 
     @mcp.tool()
@@ -170,20 +154,25 @@ def build_server(
     def press_button(
         button: Button,
         hold_frames: int = 10,
+        settle_frames: int = 8,
     ) -> str:
         """Press a button on the emulator.
 
         Args:
             button: The name of the button to press
                 (e.g., Button.A, Button.B, Button.UP, Button.DOWN).
-            hold_frames: The number of frames to hold the button down (default is 1).
+            hold_frames: The number of frames to hold the button down (default is 10).
+            settle_frames: The number of frames to wait after releasing the button,
+                so the game can react (default is 8).
         Returns:
             A string indicating which button was pressed and for how many frames.
         """
-        pyboy.button(
-            button.value,
-            delay=hold_frames,
-        )
+        with running(pyboy=pyboy, mem_lock=mem_lock):
+            pyboy.button(
+                button.value,
+                delay=hold_frames,
+            )
+            pyboy.tick(hold_frames + settle_frames)
         return f"Pressed {button.name} for {hold_frames} frames"
 
     @mcp.tool()
@@ -195,7 +184,7 @@ def build_server(
         Returns:
             A string indicating how many frames were advanced.
         """
-        with mem_lock:
+        with running(pyboy=pyboy, mem_lock=mem_lock):
             for _ in range(frames):
                 if not pyboy.tick():
                     break

@@ -3,9 +3,9 @@
 from pyboy import PyBoy
 
 from agent_oak.memory.mappings import TILESET_BASE
-from agent_oak.memory.read import MAPS_BY_NAME, read_location, read_npcs
+from agent_oak.memory.read import read_location, read_npcs
 from agent_oak.parser.maps import load_blocksets, parse_collision_tile_ids
-from agent_oak.parser.models import WATER_TILE
+from agent_oak.parser.models import WATER_TILE, GameMap
 
 BLOCKSETS = load_blocksets()
 COLLISION_TILE_IDS = parse_collision_tile_ids()
@@ -111,9 +111,15 @@ def render_grid(grid: list[list[str]]) -> str:
 def render_current_map(
     pyboy: PyBoy,
     syms: dict[str, int],
+    maps_by_id: dict[int, GameMap],
+    maps_by_name: dict[str, GameMap],
 ) -> str:
     """Render the current map as string."""
-    loc = read_location(pyboy=pyboy, syms=syms)
+    loc = read_location(
+        pyboy=pyboy,
+        syms=syms,
+        maps_by_id=maps_by_id,
+    )
     npcs = read_npcs(pyboy=pyboy, syms=syms)
     base = TILESET_BASE[loc.tileset_id]
 
@@ -150,7 +156,7 @@ def render_current_map(
     header = f"{loc.map.const} ({len(grid[0])}x{len(grid)})  you: ({loc.x}, {loc.y})"
     warps_str = "Warps: " + " ".join(
         [
-            f"({warp.x}, {warp.y}) -> {MAPS_BY_NAME[warp.dest_map].const}"
+            f"({warp.x}, {warp.y}) -> {maps_by_name[warp.dest_map].const}"
             for warp in loc.map.warps
         ]
     )

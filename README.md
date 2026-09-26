@@ -39,6 +39,8 @@ uv sync
 uv run agentoak   # starts PyBoy + MCP server on http://127.0.0.1:8765/mcp
 ```
 
+By default the game is paused and only advances inside acting tools, so it doesn't drift while the LLM thinks. Use `uv run agentoak --manual` to start unpaused and play by hand. Press **P** in the emulator window at any time to toggle pause.
+
 Then point any MCP client at the server. `.vscode/mcp.json` has a ready-made config.
 `scripts/render_map_graph.py` renders the map connectivity graph to PDF.
 
