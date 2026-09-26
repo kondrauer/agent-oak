@@ -5,11 +5,11 @@ from pyboy import PyBoy
 from agent_oak.memory.mappings import TILESET_BASE
 from agent_oak.memory.read import MAPS_BY_NAME, read_location, read_npcs
 from agent_oak.parser.maps import load_blocksets, parse_collision_tile_ids
+from agent_oak.parser.models import WATER_TILE
 
 BLOCKSETS = load_blocksets()
 COLLISION_TILE_IDS = parse_collision_tile_ids()
 
-WATER_TILE = 0x14
 CUT_TREE = {
     "overworld": 0x3D,
     "gym": 0x50,

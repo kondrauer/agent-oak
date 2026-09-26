@@ -2,9 +2,14 @@
 
 import pprint
 import re
+from collections import defaultdict
 from pathlib import Path
 
+from agent_oak.memory.mappings import TILESET_BASE, Tilesets
 from agent_oak.parser.models import (
+    SHORE_TILES,
+    SPRITE_FACING,
+    WATER_TILE,
     Connection,
     Direction,
     GameMap,
@@ -14,6 +19,7 @@ from agent_oak.parser.models import (
     Npc,
     Sign,
     StaticMon,
+    Tileset,
     Trainer,
     Warp,
 )
@@ -27,7 +33,12 @@ _RE_MAP_CONST_COMPLETE = re.compile(
 def _classify_map_object(args: list[str]) -> MapObject:
     x, y, sprite, move, facing, text = args[:6]
     base = dict(
-        x=int(x), y=int(y), sprite=sprite, movement=move, facing=facing, text_id=text
+        x=int(x),
+        y=int(y),
+        sprite=sprite,
+        movement=move,
+        facing=facing,
+        text_id=text,
     )
     match args[6:]:
         case []:
@@ -198,11 +209,105 @@ def parse_maps(
     return maps_by_name, maps_by_id
 
 
+def parse_pair_collision_tile_ids(
+    pair_collision_tile_ids: Path = Path("data/tilesets/pair_collision_tile_ids.asm"),
+) -> tuple[dict[str, set[frozenset[int]]], dict[str, set[frozenset[int]]]]:
+    """Parse pair collision tile ids."""
+    land_pair_collision_tile_ids_by_name: dict[str, set[frozenset[int]]] = defaultdict(
+        set
+    )
+    water_pair_collision_tile_ids_by_name: dict[str, set[frozenset[int]]] = defaultdict(
+        set
+    )
+
+    with pair_collision_tile_ids.open() as file:
+        land = True
+
+        for line in file.readlines():
+            line = line.strip()
+            if line.startswith("db") and "-1" not in line:
+                line = line.replace("db", "").strip()
+                name, idx_1, idx_2 = line.split(",")
+                idx_1 = idx_1.replace("$", "")
+                idx_2 = idx_2.replace("$", "")
+                if land:
+                    land_pair_collision_tile_ids_by_name[name].add(
+                        frozenset(
+                            (
+                                int(
+                                    idx_1,
+                                    base=16,
+                                ),
+                                int(
+                                    idx_2,
+                                    base=16,
+                                ),
+                            )
+                        )
+                    )
+                else:
+                    water_pair_collision_tile_ids_by_name[name].add(
+                        frozenset(
+                            (
+                                int(
+                                    idx_1,
+                                    base=16,
+                                ),
+                                int(
+                                    idx_2,
+                                    base=16,
+                                ),
+                            )
+                        )
+                    )
+            elif line.startswith("TilePairCollisionsWater::"):
+                land = False
+
+    return land_pair_collision_tile_ids_by_name, water_pair_collision_tile_ids_by_name
+
+
+def parse_water_tilesets(
+    water_tilesets: Path = Path("data/tilesets/water_tilesets.asm"),
+) -> list[str]:
+    """Parset water tileset names."""
+    water_tilesets_names: list[str] = []
+
+    with water_tilesets.open() as file:
+        for line in file.readlines():
+            line = line.strip()
+            if line.startswith("db") and "-1" not in line:
+                line = line.replace("db", "").strip()
+                water_tilesets_names.append(line)
+
+    return water_tilesets_names
+
+
+def parse_ledge_tile_ids(
+    ledge_tiles: Path = Path("data/tilesets/ledge_tiles.asm"),
+) -> list[tuple[Direction, int, int]]:
+    """Parse ledge tile id pairs."""
+    ledge_tiles_list: list[tuple[Direction, int, int]] = []
+
+    with ledge_tiles.open() as file:
+        for line in file.readlines():
+            line = line.strip()
+            if line.startswith("db") and "-1" not in line:
+                line = line.replace("db", "").strip()
+                sprite_dir, idx_1, idx_2, press_dir = line.split(",")
+                dir = SPRITE_FACING[sprite_dir]
+                idx_1 = int(idx_1.replace("$", "").strip(), base=16)
+                idx_2 = int(idx_2.replace("$", "").strip(), base=16)
+
+                ledge_tiles_list.append((dir, idx_1, idx_2))
+
+    return ledge_tiles_list
+
+
 def parse_collision_tile_ids(
     collision_tile_ids: Path = Path("data/tilesets/collision_tile_ids.asm"),
-) -> dict[str, list[int]]:
+) -> dict[str, set[int]]:
     """Parse collision tile ids into Tileset->ids mapping."""
-    collision_tile_ids_by_name: dict[str, list[int]] = {}
+    collision_tile_ids_by_name: dict[str, set[int]] = {}
 
     temp: list[str] = []
 
@@ -215,13 +320,13 @@ def parse_collision_tile_ids(
             if line.endswith("::"):
                 temp.append(line[:-2].removesuffix("_Coll"))
             elif line.startswith("coll_tiles"):
-                tiles = [
+                tiles = {
                     int(h, 16)
                     for h in re.findall(
                         pattern=r"\$([0-9a-fA-F]+)",
                         string=line,
                     )
-                ]
+                }
                 for label in temp:
                     collision_tile_ids_by_name[label.lower()] = tiles
 
@@ -245,5 +350,44 @@ def load_blocksets(
     return blocksets_by_name
 
 
+def parse_tilesets() -> tuple[dict[str, Tileset], dict[int, Tileset]]:
+    """Parse every tileset."""
+    blocksets = load_blocksets()
+    collision_tile_ids = parse_collision_tile_ids()
+    ledge_tiles = parse_ledge_tile_ids()
+    water_tilesets = parse_water_tilesets()
+    pair_collisions_land, pair_collisions_water = parse_pair_collision_tile_ids()
+
+    tilesets_by_name: dict[str, Tileset] = {}
+    tilesets_by_id: dict[int, Tileset] = {}
+
+    for tileset in Tilesets:
+        name = tileset.name
+        idx = tileset.value
+
+        blockset = TILESET_BASE[idx]
+
+        water: set[int] = set()
+        if name in water_tilesets:
+            water = {WATER_TILE}
+            if name != "SHIP_PORT":
+                water |= SHORE_TILES
+
+        tileset = Tileset(
+            name=name,
+            blocks=blocksets[blockset],
+            collision=collision_tile_ids[name.replace("_", "").lower()],
+            water=water,
+            pair_collisions_land=pair_collisions_land[name],
+            pair_collisions_water=pair_collisions_water[name],
+            ledges=ledge_tiles,
+        )
+
+        tilesets_by_name[name] = tileset
+        tilesets_by_id[idx] = tileset
+
+    return tilesets_by_name, tilesets_by_id
+
+
 if __name__ == "__main__":
-    pprint.pprint(parse_maps())
+    pprint.pprint(parse_tilesets())

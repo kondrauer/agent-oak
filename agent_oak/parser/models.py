@@ -15,6 +15,17 @@ class Direction(str, Enum):
     WEST = "west"
 
 
+SPRITE_FACING = {
+    "SPRITE_FACING_DOWN": Direction.SOUTH,
+    "SPRITE_FACING_UP": Direction.NORTH,
+    "SPRITE_FACING_LEFT": Direction.WEST,
+    "SPRITE_FACING_RIGHT": Direction.EAST,
+}
+
+WATER_TILE = 0x14
+SHORE_TILES = {0x32, 0x48}  # skipped when the tileset is SHIP_PORT
+
+
 class NPCMovement(str, Enum):
     """NPC Movement enum."""
 
@@ -104,7 +115,6 @@ class GameMapConstant(BaseModel):
     height: int
 
 
-# TODO: implement parsind for Tilesets
 class Tileset(BaseModel):
     """Tileset model."""
 
@@ -115,6 +125,13 @@ class Tileset(BaseModel):
     pair_collisions_land: set[frozenset[int]] = Field(default_factory=set)
     pair_collisions_water: set[frozenset[int]] = Field(default_factory=set)
     ledges: list[tuple[Direction, int, int]] = Field(default_factory=list)
+    counter_tiles: set[int] = Field(default_factory=set)
+    grass_tile: int | None = None
+
+    @property
+    def num_blocks(self) -> int:
+        """Calculate the number of blocks in the tileset."""
+        return len(self.blocks) // 16
 
 
 class GameMap(GameMapConstant):

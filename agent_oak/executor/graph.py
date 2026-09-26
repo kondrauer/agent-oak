@@ -1,9 +1,12 @@
 """Module to build a world graph."""
 
+import heapq
+from typing import Callable, Iterable
+
 from networkx import MultiDiGraph
 
-from agent_oak.executor.models import OPPOSITE, World
-from agent_oak.parser.maps import parse_maps
+from agent_oak.executor.models import OPPOSITE, Edge, Node, World
+from agent_oak.parser.maps import parse_maps, parse_tilesets
 from agent_oak.parser.models import Direction, GameMap
 
 
@@ -118,7 +121,56 @@ def resolve_last_map(maps: dict[str, GameMap]) -> dict[str, set[str]]:
     return inbound
 
 
-if __name__ == "__main__":
-    by_str, by_id = parse_maps()
+def shortest_path(
+    world: World,
+    start: Node,
+    goal: Node,
+    abilities: Iterable[str] = (),
+    blocked: Callable[[Node], bool] = lambda n: False,
+    heuristic: Callable[[Node, Node], float] | None = None,
+) -> list[Edge] | None:
+    """Search with A* over the lazy neighbour function.
 
-    print(resolve_last_map(by_str))
+    `abilities` are the tokens that satisfy edge `requires` ({'SURF', 'CUT', ...}).
+    `blocked` is where sprites go -- pass a closure over your RAM overlay, or over
+    the static object models filtered by progression.
+    """
+    have = frozenset(abilities)
+    h = heuristic or (lambda a, b: 0.0)
+    seen: set[Node] = set()
+    best: dict[Node, float] = {start: 0.0}
+    prev: dict[Node, tuple[Node, Edge]] = {}
+    pq: list[tuple[float, int, Node]] = [(h(start, goal), 0, start)]
+    tick = 0
+
+    while pq:
+        _, _, cur = heapq.heappop(pq)
+        if cur == goal:
+            out: list[Edge] = []
+            while cur in prev:
+                cur, e = prev[cur]
+                out.append(e)
+            return out[::-1]
+        if cur in seen:
+            continue
+        seen.add(cur)
+
+        for e in world.neighbors(node=cur):
+            if e.requires > have or blocked(e.dst):
+                continue
+
+            g = best[cur] + e.cost
+            if g < best.get(e.dst, float("inf")):
+                best[e.dst] = g
+                prev[e.dst] = (cur, e)
+                tick += 1
+                heapq.heappush(pq, (g + h(e.dst, goal), tick, e.dst))
+
+    return None
+
+
+if __name__ == "__main__":
+    maps_by_str, _ = parse_maps()
+    tilesets_by_str, _ = parse_tilesets()
+
+    world = World(maps=maps_by_str, tilesets=tilesets_by_str)

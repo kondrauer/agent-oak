@@ -47,7 +47,7 @@ class World:
         self.tilesets = tilesets
         self.sign = connection_offset_sign
         self._warps_out: dict[Node, list[Edge]] = {}
-        self._conns: dict[str, dict[Direction, Connection]]
+        self._conns: dict[str, dict[Direction, Connection]] = {}
         self._index()
 
     def _index(self) -> None:
@@ -167,7 +167,7 @@ class World:
         return landing if self.terrain(node=landing) == "land" else None
 
     def neighbors(self, node: Node) -> Iterator[Edge]:
-        """All stati edges out of 'node'."""
+        """All static edges out of 'node'."""
         const, x, y = node
         m = self.maps[const]
         ts = self.tilesets[m.tileset]
