@@ -1,7 +1,7 @@
 [project]
 name = "agentoak"
 version = "0.1.0"
-description = "Add your description here"
+description = "An LLM playing Pokémon Red via an MCP server on the PyBoy emulator"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -23,7 +23,7 @@ dev = [
 ]
 
 [project.scripts]
-agentoak = "agentoak:main"
+agentoak = "agent_oak.app:main"
 
 [tool.ruff.lint]
 select = [

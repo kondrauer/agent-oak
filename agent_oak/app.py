@@ -9,7 +9,9 @@ from agent_oak.pyboy_mcp.server import build_server
 ROM_PATH = "pokemon-red.gb"
 SYM_PATH = "pokered.sym"
 
-if __name__ == "__main__":
+
+def main() -> None:
+    """Start the emulator and serve the MCP server."""
     syms = load_symbols(path=Path(SYM_PATH))
     pyboy = create_emulator(rom_path=ROM_PATH)
     mem_lock = Lock()
@@ -37,3 +39,7 @@ if __name__ == "__main__":
                 break
     finally:
         pyboy.stop()
+
+
+if __name__ == "__main__":
+    main()
