@@ -27,6 +27,19 @@ def main() -> None:
         "(press P in the window to toggle pause at any time)",
     )
     parser.add_argument(
+        "--realtime",
+        action="store_true",
+        help="show every frame at real speed, also while tools run (slower, "
+        "tools otherwise skip ahead many frames at once)",
+    )
+    parser.add_argument(
+        "--record",
+        metavar="FILE",
+        type=Path,
+        help="record the gameplay to a video file (e.g. run.mp4, needs "
+        "ffmpeg), paused time is left out, implies --realtime",
+    )
+    parser.add_argument(
         "--goto",
         metavar="MAP",
         help="debug: once in the overworld, walk to the first warp of MAP "
@@ -41,7 +54,11 @@ def main() -> None:
         maps=maps_by_name,
         tilesets=tilesets_by_name,
     )
-    pyboy = create_emulator(rom_path=ROM_PATH)
+    pyboy = create_emulator(
+        rom_path=ROM_PATH,
+        realtime=args.realtime,
+        record_path=args.record,
+    )
     mem_lock = Lock()
 
     if not args.manual:

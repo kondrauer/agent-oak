@@ -49,6 +49,13 @@ uv run agentoak   # starts PyBoy + MCP server on http://127.0.0.1:8765/mcp
 
 By default the game is paused and only advances inside acting tools, so it doesn't drift while the LLM thinks. Use `uv run agentoak --manual` to start unpaused and play by hand. Press **P** in the emulator window at any time to toggle pause.
 
+Tools skip ahead many frames at once, so the window only updates now and then. `--realtime` shows every frame at real speed instead, tools take as long as the game does. `--record run.mp4` (needs ffmpeg, implies `--realtime`) records every frame the game advances, paused time between tool calls is left out. Cut a part into a GIF with:
+
+```sh
+ffmpeg -ss 00:12:30 -to 00:14:00 -i run.mp4 \
+  -vf "fps=30,scale=320:-1:flags=neighbor,split[a][b];[a]palettegen[p];[b][p]paletteuse" brock.gif
+```
+
 Then point any MCP client at the server. `.vscode/mcp.json` has a ready-made config.
 `scripts/render_map_graph.py` renders the map connectivity graph to PDF.
 
