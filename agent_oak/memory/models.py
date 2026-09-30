@@ -30,8 +30,9 @@ class Button(str, Enum):
 class Menu(BaseModel):
     """A menu or prompt waiting for a choice."""
 
-    kind: Literal["menu", "battle_menu"] = Field(
-        description="battle_menu is the FIGHT / PKMN / ITEM / RUN menu"
+    kind: Literal["menu", "battle_menu", "move_menu", "party_menu"] = Field(
+        description="battle_menu is the FIGHT / PKMN / ITEM / RUN menu, "
+        "move_menu the move list in battle, party_menu the party list"
     )
     options: list[str]
     selected: int = Field(description="Index of the option under the cursor")
@@ -140,6 +141,16 @@ class BattleState(BaseModel):
     def serialize_battle_type(self, value: BattleType | str) -> str:
         """Serialize the battle type using its member name."""
         return value.name if isinstance(value, BattleType) else value
+
+
+class BattleTurn(BaseModel):
+    """Outcome of a battle action."""
+
+    dialogue: DialogueResult = Field(
+        description="Text of the turn and the next menu (battle_menu when it "
+        "is the player's turn again, done when the battle is over)"
+    )
+    battle: BattleState
 
 
 class Pokemon(BaseModel):

@@ -28,7 +28,8 @@ LLM client ──MCP (HTTP)──▶ FastMCP server ──▶ PyBoy (Pokémon Re
 | `get_screenshot` | Current screen as PNG |
 | `press_button`, `advance_frames` | Raw input |
 | `advance_dialogue_tool` | Read and click through text page by page, stops at menus, prompts and the battle menu |
-| `select_option_tool` | Pick an option of the open menu (yes/no, shop, ...) and read what follows |
+| `select_option_tool` | Pick an option of the open menu (yes/no, Pokecenter, battle menus, ...) and read what follows |
+| `use_move`, `switch_pokemon`, `run_from_battle` | Battle actions by name, return the turn's text and the battle state |
 | `talk_to_tool` | Walk next to an NPC or sign (also across counters), face it and talk |
 | `get_npcs` | NPCs with live positions and their map data, plus the map's signs |
 | `find_maps` | Search maps by name substring, returns warps, connections, objects and signs |
@@ -51,11 +52,12 @@ Then point any MCP client at the server. `.vscode/mcp.json` has a ready-made con
 
 ## Roadmap
 
-- [ ] Connect the `World` / A* pathfinder to MCP (replace the greedy `walk_to`)
-- [ ] Account for NPCs, story progression and HM abilities (Cut, Surf, ...) during pathfinding
-- [ ] Resolve `LAST_MAP` warps at runtime
-- [ ] Battle actions (use move, switch, run)
-- [ ] Talk-to-NPC and menu/item actions
+- [x] Connect the `World` / A* pathfinder to MCP (replace the greedy `walk_to`)
+- [x] Account for NPCs, story progression and HM abilities (Cut, Surf, ...) during pathfinding
+- [x] Resolve `LAST_MAP` warps at world building time
+- [x] Battle actions (use move, switch, run)
+- [ ] Items in and out of battle (scrolling list menus)
+- [x] Talk-to-NPC and menu/item actions
 - [ ] Interrupt handling (wild battles, dialogues) during multi-step actions
 - [ ] Objective layer: let the LLM query what it has achieved (badges, key items, story flags) and what it still needs to do next
 - [ ] Memory layer for long-horizon play

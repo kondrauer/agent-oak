@@ -6,12 +6,14 @@ from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
 from pyboy import PyBoy
 
+from agent_oak.executor.battle import battle_run, battle_switch, battle_use_move
 from agent_oak.executor.dialogue import advance_dialogue, select_option, talk_to
 from agent_oak.executor.models import TalkResult, World
 from agent_oak.executor.navigation import goto
 from agent_oak.memory.models import (
     BagItems,
     BattleState,
+    BattleTurn,
     Button,
     DialogueResult,
     MapObjects,
@@ -83,8 +85,10 @@ def build_server(
     def select_option_tool(index: int, timeout_frames: int = 1800) -> DialogueResult:
         """Choose an option of the open menu and read what follows.
 
-        Works for yes/no prompts and other vertical menus (Pokecenter, shop,
-        start menu). The battle menu is not supported yet.
+        Works for any menu the dialogue tools report: yes/no prompts,
+        Pokecenter, start menu, and in battle the FIGHT / PKMN / ITEM / RUN
+        menu, the move list and the party list. For battles prefer use_move,
+        switch_pokemon and run_from_battle, they pick by name.
 
         Args:
             index: Index into the menu's options, e.g. 0 for YES, 1 for NO.
@@ -292,6 +296,59 @@ def build_server(
         """
         with mem_lock:
             return read_bag(
+                pyboy=pyboy,
+                syms=symbols,
+            )
+
+    @mcp.tool()
+    def use_move(move: str) -> BattleTurn:
+        """Use a move of the active Pokemon, from the battle menu.
+
+        Args:
+            move: Move name as in get_battle_state, e.g. "TACKLE".
+        Returns:
+            The turn's text up to the next decision: status battle_menu when
+                it is your turn again, menu for prompts (e.g. learn a move,
+                pick the next Pokemon), done or timeout when the battle
+                ended (call advance_dialogue_tool on timeout). Plus the
+                battle state after the turn.
+        """
+        with running(pyboy=pyboy, mem_lock=mem_lock):
+            return battle_use_move(
+                pyboy=pyboy,
+                syms=symbols,
+                move=move,
+            )
+
+    @mcp.tool()
+    def switch_pokemon(pokemon: str) -> BattleTurn:
+        """Send out another party Pokemon.
+
+        Works from the battle menu and when the game asks for the next
+        Pokemon after one fainted.
+
+        Args:
+            pokemon: Nickname of the party Pokemon, e.g. "PIKACHU".
+        Returns:
+            The turn's text up to the next decision and the battle state.
+        """
+        with running(pyboy=pyboy, mem_lock=mem_lock):
+            return battle_switch(
+                pyboy=pyboy,
+                syms=symbols,
+                pokemon=pokemon,
+            )
+
+    @mcp.tool()
+    def run_from_battle() -> BattleTurn:
+        """Try to run away, only possible in wild battles.
+
+        Returns:
+            The text (got away, or failed and the enemy's turn) and the
+                battle state.
+        """
+        with running(pyboy=pyboy, mem_lock=mem_lock):
+            return battle_run(
                 pyboy=pyboy,
                 syms=symbols,
             )

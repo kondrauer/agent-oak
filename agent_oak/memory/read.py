@@ -37,6 +37,9 @@ NAME_LEN = 11
 TILEMAP_WIDTH = 20
 TILEMAP_HEIGHT = 18
 CURSOR_TILE = 0xED
+IDLE_CURSOR_TILE = 0xEC  # ▷, marks the entry a menu came from
+# cursor position -> option of the 2x2 FIGHT / PKMN / ITEM / RUN menu
+BATTLE_MENU_CURSOR = {(9, 14): 0, (15, 14): 1, (9, 16): 2, (15, 16): 3}
 CONTINUE_ARROW_TILE = 0xEE
 SPACE_TILE = 0x7F
 BORDER_TILE = 0x7C  # │
@@ -290,6 +293,36 @@ def _decode_row(
     return decode_text(bytes(SPACE_TILE if b == 0 else b for b in row))
 
 
+def _menu_column(tiles: bytes, x: int, y: int) -> list[tuple[int, str]]:
+    """Options of the box the cursor at (x, y) is in, as (row, text).
+
+    Walks up and down the cursor column until a box border, every row with
+    text right of the column is an option. Works for any row spacing.
+    """
+    in_box = {SPACE_TILE, CURSOR_TILE, IDLE_CURSOR_TILE}
+    top = y
+    while top > 0 and _tile(tiles, x, top - 1) in in_box:
+        top -= 1
+    bottom = y
+    while bottom < TILEMAP_HEIGHT - 1 and _tile(tiles, x, bottom + 1) in in_box:
+        bottom += 1
+
+    options = []
+    for row_y in range(top, bottom + 1):
+        end = next(
+            (
+                col
+                for col in range(x + 1, TILEMAP_WIDTH)
+                if _tile(tiles, col, row_y) == BORDER_TILE
+            ),
+            TILEMAP_WIDTH,
+        )
+        text = _decode_row(tiles, row_y, x + 1, end).strip()
+        if text:
+            options.append((row_y, text))
+    return options
+
+
 def _read_menu(
     pyboy: PyBoy,
     syms: dict[str, int],
@@ -297,45 +330,44 @@ def _read_menu(
 ) -> Menu | None:
     """Read the menu under the ▶ cursor, if one is shown.
 
-    Menu RAM keeps its values after a menu closes, so only a visible cursor
-    counts. Options are drawn every second row starting at wTopMenuItemY,
-    right of the cursor column wTopMenuItemX.
+    Menu RAM keeps its values after a menu closes and its layout differs per
+    menu (the move list counts from 1, the battle menu keeps the column in
+    wTopMenuItemX), so options and selection are read from the screen.
     """
     cursors = [
         divmod(i, TILEMAP_WIDTH)[::-1] for i, t in enumerate(tiles) if t == CURSOR_TILE
     ]
     if not cursors:
         return None
+    x, y = cursors[0]
 
-    if read_in_battle(pyboy=pyboy, syms=syms) and "FIGHT" in "".join(
-        _decode_row(tiles, y) for y in range(12, 18)
-    ):
-        # 2x2 grid: FIGHT PKMN / ITEM RUN
-        x, y = cursors[0]
+    if read_in_battle(pyboy=pyboy, syms=syms):
+        if "FIGHT" in _decode_row(tiles, 14) and (x, y) in BATTLE_MENU_CURSOR:
+            return Menu(
+                kind="battle_menu",
+                options=["FIGHT", "PKMN", "ITEM", "RUN"],
+                selected=BATTLE_MENU_CURSOR[(x, y)],
+            )
+        move_menu = "TYPE/" in _decode_row(tiles, 9)
+    else:
+        move_menu = False
+
+    if x == 0:
+        # party menu: cursor left of the HP bar, name one row above it
+        count = pyboy.memory[syms["wPartyCount"]]
         return Menu(
-            kind="battle_menu",
-            options=["FIGHT", "PKMN", "ITEM", "RUN"],
-            selected=(2 if y > 14 else 0) + (1 if x > 12 else 0),
+            kind="party_menu",
+            options=[_decode_row(tiles, 2 * i, 3, 13).strip() for i in range(count)],
+            selected=(y - 1) // 2,
         )
 
-    top_x = pyboy.memory[syms["wTopMenuItemX"]]
-    top_y = pyboy.memory[syms["wTopMenuItemY"]]
-    max_item = pyboy.memory[syms["wMaxMenuItem"]]
-    selected = pyboy.memory[syms["wCurrentMenuItem"]]
-
-    options = []
-    for i in range(max_item + 1):
-        y = top_y + 2 * i
-        if not 0 <= top_x < TILEMAP_WIDTH - 1 or y >= TILEMAP_HEIGHT:
-            break
-        row = tiles[y * TILEMAP_WIDTH : (y + 1) * TILEMAP_WIDTH]
-        end = next(
-            (x for x in range(top_x + 1, TILEMAP_WIDTH) if row[x] == BORDER_TILE),
-            TILEMAP_WIDTH,
-        )
-        options.append(_decode_row(tiles, y, top_x + 1, end).strip())
-
-    return Menu(kind="menu", options=options, selected=selected)
+    options = _menu_column(tiles=tiles, x=x, y=y)
+    rows = [row_y for row_y, _ in options]
+    return Menu(
+        kind="move_menu" if move_menu else "menu",
+        options=[text for _, text in options],
+        selected=rows.index(y) if y in rows else 0,
+    )
 
 
 def read_text_state(
