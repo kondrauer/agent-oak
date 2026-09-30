@@ -26,6 +26,7 @@ from agent_oak.memory.models import (
     PlayerLocation,
     Pokemon,
     PokemonStats,
+    Quantity,
     TextState,
     Warp,
 )
@@ -50,7 +51,21 @@ TEXT_BOX_ROWS = range(13, 17)
 DEX_ENTRY_TILES = {(0, 0): 0x63, (0, 9): 0x68}
 # name and category next to the picture, then the description below
 DEX_ENTRY_ROWS = ((2, 1, 19), (4, 1, 19), *((y, 1, 19) for y in range(10, 17)))
+DEX_HEADER_LINES = 2  # name and category, repeated on every page
 CONTINUE_ARROW_POS = (18, 16)
+# scrolling list menus (mart, bag) are drawn in a box at (4, 2)-(19, 12)
+LIST_BOX_CORNERS = {(4, 2): 0x79, (19, 12): 0x7E}
+LIST_CURSOR_X = 5
+PRICED_ITEM_LIST_MENU = 2  # wListMenuID of the mart's buy list
+ITEM_LIST_MENU = 3  # wListMenuID of the bag
+QUANTITY_TILE = 0xF1  # ×, first tile inside the quantity box
+STACK_TOP = 0xE000
+STRING_END = 0x50
+# item names and prices in ROM (bank, address), indexed by item id - 1
+ITEM_NAMES_ROM = (0x01, 0x472B)
+ITEM_PRICES_ROM = (0x01, 0x4608)
+FIRST_HM = 0xC4
+FIRST_TM = 0xC9
 # sprite facing byte, SPRITESTATEDATA1_FACINGDIRECTION
 FACING = {
     0x0: Direction.SOUTH,
@@ -65,7 +80,8 @@ MAX_SPRITES = 16  # slot 0 is the player
 SPECIES = by_id(Path("constants/pokemon_constants.asm"))
 MOVES = by_id(Path("constants/move_constants.asm"))
 ITEMS = by_id(Path("constants/item_constants.asm"))
-CHARMAP = by_id(Path("constants/charmap.asm"))
+# the first entries of $ED and $F0 are town map / naming screen graphics
+CHARMAP = by_id(Path("constants/charmap.asm")) | {0xED: "▶", 0xF0: "¥"}
 
 BattlePokemonPrefix = Literal["wBattleMon", "wEnemyMon"]
 
@@ -86,6 +102,44 @@ def _item_name(item_id: int) -> str:
         return ITEMS[item_id]
     else:
         return f"Unknown_{item_id:02X}"
+
+
+_item_display_names: dict[int, str] = {}
+
+
+def _item_display_name(
+    pyboy: PyBoy,
+    item_id: int,
+) -> str:
+    """Get an item's name as the game prints it, e.g. "POKé BALL"."""
+    if item_id >= FIRST_TM:
+        return f"TM{item_id - FIRST_TM + 1:02d}"
+    if item_id >= FIRST_HM:
+        return f"HM{item_id - FIRST_HM + 1:02d}"
+    if not _item_display_names:
+        bank, addr = ITEM_NAMES_ROM
+        for i in range(1, FIRST_HM):
+            end = addr
+            while pyboy.memory[bank, end] != STRING_END:
+                end += 1
+            # PyBoy rejects empty slices, some unused ids have empty names
+            _item_display_names[i] = (
+                decode_text(bytes(pyboy.memory[bank, addr:end])) if end > addr else ""
+            )
+            addr = end + 1
+    return _item_display_names.get(item_id, f"Unknown_{item_id:02X}")
+
+
+def _item_price(
+    pyboy: PyBoy,
+    item_id: int,
+) -> int | None:
+    """Get an item's price, None for TMs and HMs (priced elsewhere)."""
+    if item_id >= FIRST_HM:
+        return None
+    bank, addr = ITEM_PRICES_ROM
+    bcd = bytes(pyboy.memory[bank, addr + 3 * (item_id - 1) : addr + 3 * item_id])
+    return int(bcd.hex())
 
 
 def _parse_pokemon(
@@ -202,7 +256,8 @@ def decode_text(data: bytes) -> str:
     """
     out = []
     for b in data:
-        if b == 0:
+        # names are padded with $50 (@) terminators, $00 ends RAM strings
+        if b in (0, STRING_END):
             break
         elif b in CHARMAP.keys():
             out.append(CHARMAP[b])
@@ -289,8 +344,9 @@ def _decode_row(
     x1: int = TILEMAP_WIDTH,
 ) -> str:
     row = tiles[y * TILEMAP_WIDTH + x0 : y * TILEMAP_WIDTH + x1]
-    # 0x00 would end decode_text early, it is a graphics tile here
-    return decode_text(bytes(SPACE_TILE if b == 0 else b for b in row))
+    # string terminators would end decode_text early, on screen they are
+    # graphics tiles
+    return decode_text(bytes(SPACE_TILE if b in (0, STRING_END) else b for b in row))
 
 
 def _menu_column(tiles: bytes, x: int, y: int) -> list[tuple[int, str]]:
@@ -323,6 +379,78 @@ def _menu_column(tiles: bytes, x: int, y: int) -> list[tuple[int, str]]:
     return options
 
 
+def _read_list_menu(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> Menu | None:
+    """Read a scrolling item list (mart, bag) from RAM.
+
+    Only four entries are on screen, the whole list is behind wListPointer:
+    a count, then item ids (mart) or id / quantity pairs (bag). The game adds
+    CANCEL after the last entry.
+    """
+    list_id = pyboy.memory[syms["wListMenuID"]]
+    if list_id not in (PRICED_ITEM_LIST_MENU, ITEM_LIST_MENU):
+        return None
+
+    pointer = syms["wListPointer"]
+    base = pyboy.memory[pointer] | pyboy.memory[pointer + 1] << 8
+    count = pyboy.memory[base]
+    options = []
+    for i in range(count):
+        if list_id == ITEM_LIST_MENU:
+            item_id = pyboy.memory[base + 1 + 2 * i]
+            quantity = pyboy.memory[base + 2 + 2 * i]
+            options.append(f"{_item_display_name(pyboy, item_id)} ×{quantity}")
+        else:
+            item_id = pyboy.memory[base + 1 + i]
+            price = _item_price(pyboy, item_id)
+            name = _item_display_name(pyboy, item_id)
+            options.append(name if price is None else f"{name} ¥{price}")
+    return Menu(
+        kind="list_menu",
+        options=[*options, "CANCEL"],
+        selected=pyboy.memory[syms["wListScrollOffset"]]
+        + pyboy.memory[syms["wCurrentMenuItem"]],
+    )
+
+
+def _in_quantity_loop(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> bool:
+    """Check if the game waits for input in DisplayChooseQuantityMenu.
+
+    The box stays on screen after the choice while the next text prints, so
+    look for a return address into the key press loop on the live stack.
+    """
+    loop = syms["DisplayChooseQuantityMenu.waitForKeyPressLoop"]
+    loop_end = syms["DisplayChooseQuantityMenu.incrementQuantity"]
+    sp = pyboy.register_file.SP
+    return any(
+        loop <= (pyboy.memory[a] | pyboy.memory[a + 1] << 8) < loop_end
+        for a in range(sp, STACK_TOP - 1, 2)
+    )
+
+
+def _read_quantity(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+    tiles: bytes,
+) -> Quantity | None:
+    """Read the ×NN quantity prompt (buy, sell, toss), if one is waiting."""
+    shown = any(
+        t == QUANTITY_TILE and i % TILEMAP_WIDTH and tiles[i - 1] == BORDER_TILE
+        for i, t in enumerate(tiles)
+    )
+    if not shown or not _in_quantity_loop(pyboy=pyboy, syms=syms):
+        return None
+    return Quantity(
+        value=pyboy.memory[syms["wItemQuantity"]],
+        max=pyboy.memory[syms["wMaxItemQuantity"]],
+    )
+
+
 def _read_menu(
     pyboy: PyBoy,
     syms: dict[str, int],
@@ -340,6 +468,13 @@ def _read_menu(
     if not cursors:
         return None
     x, y = cursors[0]
+
+    if x == LIST_CURSOR_X and all(
+        _tile(tiles, cx, cy) == t for (cx, cy), t in LIST_BOX_CORNERS.items()
+    ):
+        list_menu = _read_list_menu(pyboy=pyboy, syms=syms)
+        if list_menu is not None:
+            return list_menu
 
     if read_in_battle(pyboy=pyboy, syms=syms):
         if "FIGHT" in _decode_row(tiles, 14) and (x, y) in BATTLE_MENU_CURSOR:
@@ -393,6 +528,7 @@ def read_text_state(
     else:
         rows = []
 
+    dex_entry = rows == list(DEX_ENTRY_ROWS)
     box_open = bool(rows)
     text = []
     for y, x0, x1 in rows:
@@ -404,7 +540,9 @@ def read_text_state(
         text=text,
         waiting_for_a=box_open
         and _tile(tiles, *CONTINUE_ARROW_POS) == CONTINUE_ARROW_TILE,
+        dex_entry=dex_entry,
         menu=_read_menu(pyboy=pyboy, syms=syms, tiles=tiles),
+        quantity=_read_quantity(pyboy=pyboy, syms=syms, tiles=tiles),
     )
 
 
@@ -470,9 +608,31 @@ def read_warps(pyboy: PyBoy, syms: dict[str, int]) -> list[Warp]:
     return warps
 
 
+def _hidden_slots(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> set[int]:
+    """Sprite slots of objects the story has hidden (items picked up, ...).
+
+    wToggleableObjectList holds (slot, global index) pairs of the current
+    map, a set bit in wToggleableObjectFlags hides that object.
+    """
+    base = syms["wToggleableObjectList"]
+    flags = syms["wToggleableObjectFlags"]
+    hidden = set()
+    for i in range(0, 2 * MAX_SPRITES, 2):
+        slot, index = pyboy.memory[base + i], pyboy.memory[base + i + 1]
+        if slot == 0xFF:
+            break
+        if pyboy.memory[flags + index // 8] & (1 << (index % 8)):
+            hidden.add(slot)
+    return hidden
+
+
 def read_npcs(pyboy: PyBoy, syms: dict[str, int]) -> list[Npc]:
-    """Read current NPCs."""
+    """Read current NPCs, including the ones off screen."""
     count = pyboy.memory[syms["wNumSprites"]]
+    hidden = _hidden_slots(pyboy=pyboy, syms=syms)
     data1 = syms["wSprite01StateData1"]
     data2 = syms["wSprite01StateData2"]
 
@@ -483,7 +643,8 @@ def read_npcs(pyboy: PyBoy, syms: dict[str, int]) -> list[Npc]:
 
         if pyboy.memory[s1 + 0x00] == 0:  # picture id 0 = empty slot
             continue
-        if pyboy.memory[s1 + 0x02] == 0xFF:  # image index $FF = hidden
+        # image index $FF also marks sprites that are just off screen
+        if i + 1 in hidden:
             continue
 
         npcs.append(

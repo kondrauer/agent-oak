@@ -30,12 +30,23 @@ class Button(str, Enum):
 class Menu(BaseModel):
     """A menu or prompt waiting for a choice."""
 
-    kind: Literal["menu", "battle_menu", "move_menu", "party_menu"] = Field(
-        description="battle_menu is the FIGHT / PKMN / ITEM / RUN menu, "
-        "move_menu the move list in battle, party_menu the party list"
+    kind: Literal["menu", "battle_menu", "move_menu", "party_menu", "list_menu"] = (
+        Field(
+            description="battle_menu is the FIGHT / PKMN / ITEM / RUN menu, "
+            "move_menu the move list in battle, party_menu the party list, "
+            "list_menu a scrolling item list (mart, bag) with every entry, "
+            "not just the ones on screen"
+        )
     )
     options: list[str]
     selected: int = Field(description="Index of the option under the cursor")
+
+
+class Quantity(BaseModel):
+    """The ×NN prompt asking how many items to buy, sell or toss."""
+
+    value: int = Field(description="Quantity currently shown")
+    max: int = Field(description="Highest quantity the prompt goes to")
 
 
 class TextState(BaseModel):
@@ -44,18 +55,26 @@ class TextState(BaseModel):
     box_open: bool
     text: list[str] = Field(description="Lines currently in the text box")
     waiting_for_a: bool = Field(description="The continue arrow is shown")
+    dex_entry: bool = Field(
+        default=False,
+        description="A Pokedex entry is shown, its first lines are the name "
+        "and category",
+    )
     menu: Menu | None = None
+    quantity: Quantity | None = None
 
 
 class DialogueResult(BaseModel):
     """Outcome of advancing a dialogue."""
 
-    status: Literal["done", "menu", "battle_menu", "timeout"] = Field(
+    status: Literal["done", "menu", "battle_menu", "quantity", "timeout"] = Field(
         description="done: text box closed, menu/battle_menu: waiting for a "
-        "choice, timeout: still running after the frame budget"
+        "choice, quantity: waiting for a number (choose_quantity), timeout: "
+        "still running after the frame budget"
     )
     text: str = Field(description="Every line shown, in order")
     menu: Menu | None = None
+    quantity: Quantity | None = None
 
 
 class Item(BaseModel):

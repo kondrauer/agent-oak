@@ -7,7 +7,13 @@ from fastmcp.utilities.types import Image
 from pyboy import PyBoy
 
 from agent_oak.executor.battle import battle_run, battle_switch, battle_use_move
-from agent_oak.executor.dialogue import advance_dialogue, select_option, talk_to
+from agent_oak.executor.dialogue import (
+    advance_dialogue,
+    choose_quantity,
+    select_option,
+    talk_to,
+)
+from agent_oak.executor.items import buy_item, sell_item, use_item
 from agent_oak.executor.models import TalkResult, World
 from agent_oak.executor.navigation import goto
 from agent_oak.memory.models import (
@@ -64,15 +70,17 @@ def build_server(
         """Read and click through text until it ends or a choice is needed.
 
         Only presses A on finished pages, never inside menus. Stops at yes/no
-        prompts and other menus (answer with select_option_tool) and at the
-        battle menu (FIGHT / PKMN / ITEM / RUN). Waits through scripted scenes
+        prompts and other menus (answer with select_option_tool), at the
+        battle menu (FIGHT / PKMN / ITEM / RUN) and at quantity prompts
+        (answer with choose_quantity_tool). Waits through scripted scenes
         like an NPC walking the player somewhere.
 
         Args:
             timeout_frames: Frame budget, call again after a timeout to go on.
         Returns:
-            'status' (done, menu, battle_menu or timeout), every line shown
-                in order, and the menu waiting for a choice, if any.
+            'status' (done, menu, battle_menu, quantity or timeout), every
+                line shown in order, and the menu or quantity prompt waiting
+                for an answer, if any.
         """
         with running(pyboy=pyboy, mem_lock=mem_lock):
             return advance_dialogue(
@@ -86,9 +94,10 @@ def build_server(
         """Choose an option of the open menu and read what follows.
 
         Works for any menu the dialogue tools report: yes/no prompts,
-        Pokecenter, start menu, and in battle the FIGHT / PKMN / ITEM / RUN
-        menu, the move list and the party list. For battles prefer use_move,
-        switch_pokemon and run_from_battle, they pick by name.
+        Pokecenter, start menu, item lists (bag, mart, the whole list, it
+        scrolls as needed), and in battle the FIGHT / PKMN / ITEM / RUN menu,
+        the move list and the party list. Prefer use_move, switch_pokemon,
+        run_from_battle, use_item, buy_item and sell_item, they pick by name.
 
         Args:
             index: Index into the menu's options, e.g. 0 for YES, 1 for NO.
@@ -101,6 +110,27 @@ def build_server(
                 pyboy=pyboy,
                 syms=symbols,
                 index=index,
+                timeout_frames=timeout_frames,
+            )
+
+    @mcp.tool()
+    def choose_quantity_tool(
+        quantity: int,
+        timeout_frames: int = 1800,
+    ) -> DialogueResult:
+        """Answer a ×NN quantity prompt (buy, sell, toss) and read what follows.
+
+        Args:
+            quantity: How many, 1 up to the prompt's max.
+            timeout_frames: Frame budget for the dialogue after the choice.
+        Returns:
+            The dialogue after the choice, like advance_dialogue_tool.
+        """
+        with running(pyboy=pyboy, mem_lock=mem_lock):
+            return choose_quantity(
+                pyboy=pyboy,
+                syms=symbols,
+                quantity=quantity,
                 timeout_frames=timeout_frames,
             )
 
@@ -351,6 +381,75 @@ def build_server(
             return battle_run(
                 pyboy=pyboy,
                 syms=symbols,
+            )
+
+    @mcp.tool()
+    def use_item_tool(
+        item: str,
+        target: str | None = None,
+    ) -> BattleTurn | DialogueResult:
+        """Use an item from the bag, in battle or on the overworld.
+
+        In battle it is the turn's action (POTION, POKé BALL, ...), outside
+        of battle it opens the start menu, uses the item and closes the
+        menus again.
+
+        Args:
+            item: Item name as in get_bag, e.g. "POTION" or "POKE_BALL".
+            target: Nickname of the party Pokemon for items like POTION.
+                Defaults to the active Pokemon in battle and to the only
+                party Pokemon outside of it.
+        Returns:
+            In battle the turn and battle state, like use_move. Outside of
+                battle the dialogue. Follow up prompts (nickname a caught
+                Pokemon, teach a TM, ...) come back as a menu.
+        """
+        with running(pyboy=pyboy, mem_lock=mem_lock):
+            return use_item(
+                pyboy=pyboy,
+                syms=symbols,
+                item=item,
+                target=target,
+            )
+
+    @mcp.tool()
+    def buy_item_tool(item: str, quantity: int = 1) -> DialogueResult:
+        """Buy an item at a mart, after talking to the clerk (talk_to_tool).
+
+        Works from the clerk's BUY / SELL / QUIT menu or an open list.
+
+        Args:
+            item: Item name as listed by the clerk, e.g. "POKE BALL".
+            quantity: How many to buy.
+        Returns:
+            The clerk's answer and the menu after it: the buy list again to
+                buy more (pick CANCEL, then QUIT with select_option_tool to
+                leave), or BUY / SELL / QUIT when the money was not enough.
+        """
+        with running(pyboy=pyboy, mem_lock=mem_lock):
+            return buy_item(
+                pyboy=pyboy,
+                syms=symbols,
+                item=item,
+                quantity=quantity,
+            )
+
+    @mcp.tool()
+    def sell_item_tool(item: str, quantity: int = 1) -> DialogueResult:
+        """Sell an item from the bag at a mart, after talking to the clerk.
+
+        Args:
+            item: Item name as in get_bag, e.g. "ANTIDOTE".
+            quantity: How many to sell, capped at the number in the bag.
+        Returns:
+            The clerk's answer and the menu after it.
+        """
+        with running(pyboy=pyboy, mem_lock=mem_lock):
+            return sell_item(
+                pyboy=pyboy,
+                syms=symbols,
+                item=item,
+                quantity=quantity,
             )
 
     @mcp.tool()

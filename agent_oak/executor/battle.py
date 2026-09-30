@@ -4,57 +4,34 @@ Thin wrappers around select_option: they pick menu entries by name instead
 of by index and return the turn together with the battle state.
 """
 
-import re
-
 from pyboy import PyBoy
 
 from agent_oak.executor.dialogue import (
     MENU_SETTLE_FRAMES,
     PRESS_FRAMES,
     advance_dialogue,
+    current_menu,
+    join_texts,
+    normalize_name,
     select_option,
 )
-from agent_oak.memory.models import BattleTurn, Button, DialogueResult, Menu
-from agent_oak.memory.read import read_battle_state, read_text_state
+from agent_oak.memory.models import BattleTurn, Button, DialogueResult
+from agent_oak.memory.read import read_battle_state
 
-FIGHT, PKMN, RUN = 0, 1, 3
+FIGHT, PKMN, ITEM, RUN = 0, 1, 2, 3
 # the upper two bits of a PP byte count PP Ups
 PP_MASK = 0x3F
 
 
-def _normalize(name: str) -> str:
-    return re.sub(r"[^A-Z0-9]", "", name.upper())
-
-
-def _current_menu(
-    pyboy: PyBoy,
-    syms: dict[str, int],
-) -> tuple[Menu | None, list[str]]:
-    """Get the menu waiting for a choice, finishing pending text first."""
-    menu = read_text_state(
-        pyboy=pyboy,
-        syms=syms,
-    ).menu
-    if menu is not None:
-        return menu, []
-
-    result = advance_dialogue(
-        pyboy=pyboy,
-        syms=syms,
-    )
-    return result.menu, [result.text] if result.text else []
-
-
-def _turn(
+def battle_turn(
     pyboy: PyBoy,
     syms: dict[str, int],
     texts: list[str],
     result: DialogueResult,
 ) -> BattleTurn:
+    """Join the texts before 'result' with it and add the battle state."""
     return BattleTurn(
-        dialogue=result.model_copy(
-            update={"text": "\n".join(t for t in [*texts, result.text] if t)}
-        ),
+        dialogue=result.model_copy(update={"text": join_texts([*texts, result.text])}),
         battle=read_battle_state(
             pyboy=pyboy,
             syms=syms,
@@ -62,11 +39,12 @@ def _turn(
     )
 
 
-def _require_battle_menu(
+def require_battle_menu(
     pyboy: PyBoy,
     syms: dict[str, int],
 ) -> list[str]:
-    menu, texts = _current_menu(
+    """Finish pending text, fail unless the battle menu waits for a choice."""
+    menu, texts = current_menu(
         pyboy=pyboy,
         syms=syms,
     )
@@ -89,7 +67,7 @@ def battle_use_move(
     Returns:
         The turn's text up to the next decision and the battle state.
     """
-    texts = _require_battle_menu(
+    texts = require_battle_menu(
         pyboy=pyboy,
         syms=syms,
     )
@@ -100,10 +78,10 @@ def battle_use_move(
     if mon is None:
         raise ValueError("No active Pokemon")
 
-    names = [_normalize(m) for m in mon.moves]
-    if _normalize(move) not in names:
+    names = [normalize_name(m) for m in mon.moves]
+    if normalize_name(move) not in names:
         raise ValueError(f"{mon.species} does not know {move}, moves: {mon.moves}")
-    index = names.index(_normalize(move))
+    index = names.index(normalize_name(move))
     if mon.pp[index] & PP_MASK == 0:
         raise ValueError(f"{move} has no PP left")
 
@@ -113,7 +91,7 @@ def battle_use_move(
         index=FIGHT,
     )
     if move_menu.menu is None or move_menu.menu.kind != "move_menu":
-        return _turn(
+        return battle_turn(
             pyboy=pyboy,
             syms=syms,
             texts=texts,
@@ -125,7 +103,7 @@ def battle_use_move(
         syms=syms,
         index=index,
     )
-    return _turn(
+    return battle_turn(
         pyboy=pyboy,
         syms=syms,
         texts=[*texts, move_menu.text],
@@ -150,7 +128,7 @@ def battle_switch(
     Returns:
         The turn's text up to the next decision and the battle state.
     """
-    menu, texts = _current_menu(
+    menu, texts = current_menu(
         pyboy=pyboy,
         syms=syms,
     )
@@ -160,9 +138,9 @@ def battle_switch(
             pyboy=pyboy,
             syms=syms,
         ).player_pokemon
-        if active is not None and _normalize(active.nickname or "") == _normalize(
-            pokemon
-        ):
+        if active is not None and normalize_name(
+            active.nickname or ""
+        ) == normalize_name(pokemon):
             raise ValueError(f"{pokemon} is already out")
         result = select_option(
             pyboy=pyboy,
@@ -174,14 +152,14 @@ def battle_switch(
     if menu is None or menu.kind != "party_menu":
         raise ValueError(f"Party menu did not open, the game shows: {menu}")
 
-    names = [_normalize(n) for n in menu.options]
-    if _normalize(pokemon) not in names:
+    names = [normalize_name(n) for n in menu.options]
+    if normalize_name(pokemon) not in names:
         raise ValueError(f"{pokemon} is not in the party: {menu.options}")
 
     result = select_option(
         pyboy=pyboy,
         syms=syms,
-        index=names.index(_normalize(pokemon)),
+        index=names.index(normalize_name(pokemon)),
     )
     # a voluntary switch asks SWITCH / STATS / CANCEL first
     if result.menu is not None and "SWITCH" in result.menu.options:
@@ -200,7 +178,7 @@ def battle_switch(
             pyboy=pyboy,
             syms=syms,
         )
-    return _turn(
+    return battle_turn(
         pyboy=pyboy,
         syms=syms,
         texts=texts,
@@ -221,7 +199,7 @@ def battle_run(
         The text (escaped, or failed and the enemy's turn) and the battle
             state.
     """
-    texts = _require_battle_menu(
+    texts = require_battle_menu(
         pyboy=pyboy,
         syms=syms,
     )
@@ -230,7 +208,7 @@ def battle_run(
         syms=syms,
         index=RUN,
     )
-    return _turn(
+    return battle_turn(
         pyboy=pyboy,
         syms=syms,
         texts=texts,
