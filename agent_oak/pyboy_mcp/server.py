@@ -7,6 +7,8 @@ from fastmcp.utilities.types import Image
 from pyboy import PyBoy
 
 from agent_oak.executor.dialogue import advance_dialogue
+from agent_oak.executor.models import World
+from agent_oak.executor.navigation import goto
 from agent_oak.memory.models import (
     BagItems,
     BattleState,
@@ -24,7 +26,9 @@ from agent_oak.memory.read import (
     read_location,
     read_party,
 )
-from agent_oak.parser.models import GameMap
+from agent_oak.memory.render_map import render_current_map
+from agent_oak.parser.maps import search_maps
+from agent_oak.parser.models import GameMap, MapInfo
 from agent_oak.pyboy_mcp.emulator import grab_screen_png, running
 
 
@@ -32,6 +36,7 @@ def build_server(
     pyboy: PyBoy,
     symbols: dict[str, int],
     maps_by_id: dict[int, GameMap],
+    world: World,
     mem_lock: Lock,
 ) -> FastMCP:
     """Build the MCP server with the given emulator and symbols.
@@ -40,6 +45,7 @@ def build_server(
         pyboy: The emulator instance to read from.
         symbols: The symbol table mapping names to addresses.
         maps_by_id: Parsed game maps keyed by map id.
+        world: The world model used for pathfinding, its maps are keyed by const.
         mem_lock: A lock to synchronize access to the emulator's memory.
     Returns:
         An instance of FastMCP with the defined tools.
@@ -65,10 +71,107 @@ def build_server(
             )
 
     @mcp.tool()
-    def walk_to_tool(x: int, y: int, max_steps: int = 150) -> dict[str, object]:
-        """Not Implemented."""
+    def find_maps(query: str) -> list[MapInfo]:
+        """Search all maps by a substring of their name.
+
+        Matching ignores case, spaces, underscores and apostrophes, so
+        "oak's lab" finds OAKS_LAB and "viridian" finds every Viridian map.
+
+        Args:
+            query: Part of the map name, e.g. "pewter gym" or "ROUTE_2".
+        Returns:
+            The matching maps with their warps, connections, objects and signs.
+                Use a map's 'const' as target for goto_map. Warp and object
+                coordinates are steps, width and height are blocks (2x2 steps).
+        """
+        return [m.info() for m in search_maps(maps_by_name=world.maps, query=query)]
+
+    @mcp.tool()
+    def goto_map(
+        map_const: str,
+        x: int | None = None,
+        y: int | None = None,
+    ) -> dict[str, object]:
+        """Walk to a map, or to a step coordinate on a map.
+
+        Plans a path over tiles, ledges, warps and map connections, walks it
+        and replans around NPCs that get in the way. Stops early when the
+        walk is interrupted (wild battle, text box), handle that and call
+        again to continue.
+
+        Args:
+            map_const: Target map constant, e.g. OAKS_LAB (see find_maps).
+            x: Target x in steps. Omit x and y to go to the map's first warp.
+            y: Target y in steps. Omit x and y to go to the map's first warp.
+        Returns:
+            Whether the goal was reached, the goal, where the player ended up
+                and 'status': "reached", "in_battle", "dialogue_open",
+                "no_path" (goal unreachable from here) or "gave_up" (kept
+                getting blocked, e.g. by moving NPCs).
+        """
+        target = world.maps.get(map_const)
+        if target is None or map_const == "LAST_MAP":
+            return {"reached": False, "error": f"Unknown map {map_const}"}
+
+        if x is None and y is None:
+            if not target.warps:
+                return {
+                    "reached": False,
+                    "error": f"{map_const} has no warps, pass x and y",
+                }
+            x, y = target.warps[0].x, target.warps[0].y
+        elif x is None or y is None:
+            return {"reached": False, "error": "Pass both x and y, or neither"}
+
+        goal = (map_const, x, y)
+        # some warps sit on solid tiles, they are still reachable through
+        # the warp edge that lands on them
+        is_warp = any((w.x, w.y) == (x, y) for w in target.warps)
+        if not is_warp and world.terrain(node=goal) is None:
+            return {
+                "reached": False,
+                "error": f"{goal} is out of bounds or not walkable",
+            }
+
         with running(pyboy=pyboy, mem_lock=mem_lock):
-            return {}
+            status = goto(
+                pyboy=pyboy,
+                syms=symbols,
+                maps_by_id=maps_by_id,
+                world=world,
+                goal=goal,
+            )
+            loc = read_location(
+                pyboy=pyboy,
+                syms=symbols,
+                maps_by_id=maps_by_id,
+            )
+
+        return {
+            "reached": status == "reached",
+            "status": status,
+            "goal": {"map": map_const, "x": x, "y": y},
+            "location": {"map": loc.map.const, "x": loc.x, "y": loc.y},
+        }
+
+    @mcp.tool()
+    def get_map() -> str:
+        """Render the current map as an ASCII grid in step coordinates.
+
+        Use it to pick x, y targets on the current map for goto_map. Columns
+        are x, rows are y. The legend and the warp targets are printed above
+        the grid.
+
+        Returns:
+            The rendered map.
+        """
+        with mem_lock:
+            return render_current_map(
+                pyboy=pyboy,
+                syms=symbols,
+                maps_by_id=maps_by_id,
+                maps_by_name=world.maps,
+            )
 
     @mcp.tool()
     def get_party() -> list[Pokemon]:

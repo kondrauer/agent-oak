@@ -52,6 +52,7 @@ def main() -> None:
         pyboy=pyboy,
         symbols=syms,
         maps_by_id=maps_by_id,
+        world=world,
         mem_lock=mem_lock,
     )
 
@@ -90,15 +91,18 @@ def main() -> None:
                     # only (re)plan when the player moved, not every frame
                     if node is not None and node != last_node:
                         last_node = node
-                        if goto(
+                        status = goto(
                             pyboy=pyboy,
                             syms=syms,
                             maps_by_id=maps_by_id,
                             world=world,
                             goal=goal,
-                        ):
+                        )
+                        if status == "reached":
                             print(f"Reached {goal}")
                             goal = None
+                        else:
+                            print(f"goto stopped: {status}")
             if not still_running:
                 break
     finally:

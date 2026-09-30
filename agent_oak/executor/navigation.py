@@ -1,11 +1,18 @@
 """Functions for exectuing navigation."""
 
+from typing import Literal
+
 from pyboy import PyBoy
 
 from agent_oak.executor.graph import shortest_path
 from agent_oak.executor.models import Edge, Node, World
 from agent_oak.memory.models import Button
-from agent_oak.memory.read import read_location, read_npcs
+from agent_oak.memory.read import (
+    read_in_battle,
+    read_is_dialogue_open,
+    read_location,
+    read_npcs,
+)
 from agent_oak.parser.models import Direction, GameMap
 
 DIRECTIONS = ("up", "down", "left", "right")
@@ -16,23 +23,14 @@ WALK_TIMEOUT_FRAMES = 40
 MAP_TRANSITION_SETTLE_FRAMES = 60
 MAP_TRANSITION_TIMEOUT_FRAMES = 120
 
+GotoStatus = Literal["reached", "in_battle", "dialogue_open", "no_path", "gave_up"]
+
 BUTTON_FOR = {
     Direction.NORTH: Button.UP,
     Direction.SOUTH: Button.DOWN,
     Direction.WEST: Button.LEFT,
     Direction.EAST: Button.RIGHT,
 }
-
-
-def walk_to(
-    pyboy: PyBoy,
-    syms: dict[str, int],
-    x: int,
-    y: int,
-    max_steps: int = 150,
-) -> None:
-    """Walk to a point."""
-    pass
 
 
 def _get_current_node(
@@ -47,6 +45,40 @@ def _get_current_node(
     )
 
     return (loc.map.const, loc.x, loc.y)
+
+
+def _get_settled_node(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+    maps_by_id: dict[int, GameMap],
+    world: World,
+) -> Node:
+    """Get the current node, waiting out a warp that is still in progress."""
+    node = _get_current_node(pyboy=pyboy, syms=syms, maps_by_id=maps_by_id)
+    if not world.maybe_mid_warp(node=node):
+        return node
+
+    # a real position can look like a mid warp one too, then this just waits
+    # out the timeout and returns it unchanged
+    for _ in range(MAP_TRANSITION_TIMEOUT_FRAMES):
+        pyboy.tick()
+        if _get_current_node(pyboy=pyboy, syms=syms, maps_by_id=maps_by_id) != node:
+            # destination x, y are written, let the fade in finish
+            pyboy.tick(MAP_TRANSITION_SETTLE_FRAMES)
+            break
+    return _get_current_node(pyboy=pyboy, syms=syms, maps_by_id=maps_by_id)
+
+
+def _interruption(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> GotoStatus | None:
+    """Why walking cannot continue right now, if anything is in the way."""
+    if read_in_battle(pyboy=pyboy, syms=syms):
+        return "in_battle"
+    if read_is_dialogue_open(pyboy=pyboy, syms=syms):
+        return "dialogue_open"
+    return None
 
 
 def _tick_until(
@@ -146,20 +178,28 @@ def goto(
     world: World,
     goal: Node,
     max_replans: int = 10,
-) -> bool:
+) -> GotoStatus:
     """Go to a waypoint.
 
     Plans a path from the current position, walks it and replans from
     wherever the player is whenever a step does not land where expected
-    (NPC in the way, dialogue, ...).
+    (NPC in the way, ...). Stops early when a battle or a text box
+    interrupts the walk, the caller has to deal with it and call again.
 
     Returns:
-        Whether the player ended up on 'goal'.
+        "reached" when the player ended up on 'goal', otherwise why not.
     """
     for _ in range(max_replans + 1):
-        node = _get_current_node(pyboy=pyboy, syms=syms, maps_by_id=maps_by_id)
+        node = _get_settled_node(
+            pyboy=pyboy,
+            syms=syms,
+            maps_by_id=maps_by_id,
+            world=world,
+        )
         if node == goal:
-            return True
+            return "reached"
+        if (reason := _interruption(pyboy=pyboy, syms=syms)) is not None:
+            return reason
 
         npcs = {(node[0], n.x, n.y) for n in read_npcs(pyboy=pyboy, syms=syms)}
         path = shortest_path(
@@ -170,7 +210,7 @@ def goto(
         )
         print(path)
         if path is None:
-            return False
+            return "no_path"
 
         last_button: Button | None = None
         for step in path:
@@ -185,4 +225,12 @@ def goto(
             if step.direction is not None:
                 last_button = BUTTON_FOR[step.direction]
 
-    return _get_current_node(pyboy=pyboy, syms=syms, maps_by_id=maps_by_id) == goal
+    node = _get_settled_node(
+        pyboy=pyboy,
+        syms=syms,
+        maps_by_id=maps_by_id,
+        world=world,
+    )
+    if node == goal:
+        return "reached"
+    return _interruption(pyboy=pyboy, syms=syms) or "gave_up"

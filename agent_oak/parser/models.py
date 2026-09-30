@@ -134,16 +134,25 @@ class Tileset(BaseModel):
         return len(self.blocks) // 16
 
 
-class GameMap(GameMapConstant):
-    """Game Map model."""
+class MapInfo(GameMapConstant):
+    """Game map without its block data, small enough to hand to an LLM."""
 
     label: str = Field(description="Tilecased const name")
     tileset: str
-    blocks: bytes
     connections: list[Connection] = Field(default_factory=list)
     warps: list[Warp] = Field(default_factory=list)
     map_objects: list[MapObject] = Field(default_factory=list)
     signs: list[Sign] = Field(default_factory=list)
+
+
+class GameMap(MapInfo):
+    """Game Map model."""
+
+    blocks: bytes
+
+    def info(self) -> MapInfo:
+        """Strip the block data."""
+        return MapInfo.model_validate(self.model_dump(exclude={"blocks"}))
 
     @property
     def step_width(self) -> int:

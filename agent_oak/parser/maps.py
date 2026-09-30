@@ -214,6 +214,28 @@ def parse_maps(
     return maps_by_name, maps_by_id
 
 
+def _normalize(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def search_maps(
+    maps_by_name: dict[str, GameMap],
+    query: str,
+) -> list[GameMap]:
+    """Find maps whose const or label contains 'query'.
+
+    Case, spaces, underscores and apostrophes are ignored, so "oak's lab",
+    "OAKS_LAB" and "OaksLab" all match OAKS_LAB.
+    """
+    needle = _normalize(query)
+    return [
+        m
+        for const, m in maps_by_name.items()
+        if const != "LAST_MAP"
+        and (needle in _normalize(const) or needle in _normalize(m.label))
+    ]
+
+
 def parse_pair_collision_tile_ids(
     pair_collision_tile_ids: Path = Path("data/tilesets/pair_collision_tile_ids.asm"),
 ) -> tuple[dict[str, set[frozenset[int]]], dict[str, set[frozenset[int]]]]:
