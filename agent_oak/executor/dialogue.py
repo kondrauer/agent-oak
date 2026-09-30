@@ -87,7 +87,7 @@ def advance_dialogue(
                     state.text,
                 )
             return DialogueResult(
-                status=state.menu.kind,
+                status="battle_menu" if state.menu.kind == "battle_menu" else "menu",
                 text="\n".join(lines),
                 menu=state.menu,
             )
@@ -153,8 +153,6 @@ def select_option(
     ).menu
     if menu is None:
         raise ValueError("No menu is open")
-    if menu.kind == "battle_menu":
-        raise ValueError("The battle menu is not handled by select_option yet")
     if not 0 <= index < len(menu.options):
         raise ValueError(f"Index {index} out of range for options {menu.options}")
 
@@ -187,13 +185,36 @@ def _move_cursor(
     menu: Menu,
     index: int,
 ) -> None:
+    """Move the cursor to 'index', checking the screen after every press.
+
+    The battle menu is a 2x2 grid (FIGHT PKMN / ITEM RUN), every other menu
+    is a vertical list.
+    """
     for _ in range(MENU_PRESS_TRIES * len(menu.options)):
-        current = pyboy.memory[syms["wCurrentMenuItem"]]
-        if current == index:
+        current = read_text_state(
+            pyboy=pyboy,
+            syms=syms,
+        ).menu
+        if current is None:
+            break
+        if current.selected == index:
             return
+
+        if menu.kind == "battle_menu":
+            (row, col), (target_row, target_col) = (
+                divmod(current.selected, 2),
+                divmod(index, 2),
+            )
+            if row != target_row:
+                button = Button.DOWN if row < target_row else Button.UP
+            else:
+                button = Button.RIGHT if col < target_col else Button.LEFT
+        else:
+            button = Button.DOWN if current.selected < index else Button.UP
+
         _press(
             pyboy=pyboy,
-            button=Button.DOWN if current < index else Button.UP,
+            button=button,
             frames=MENU_MOVE_FRAMES,
         )
     raise RuntimeError(f"Could not move the cursor to option {index}")
