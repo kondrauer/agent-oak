@@ -107,6 +107,11 @@ def parse_maps(
                 .split(",")
             )
 
+            # the unused UndergroundPathRoute7Copy reuses the const of the
+            # real map, keep the first (real) one
+            if const in maps_by_name:
+                continue
+
             blk_path = Path(f"maps/{label}.blk")
             try:
                 with blk_path.open(mode="rb") as blk_file:
