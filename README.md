@@ -28,7 +28,9 @@ LLM client ──MCP (HTTP)──▶ FastMCP server ──▶ PyBoy (Pokémon Re
 | `get_screenshot` | Current screen as PNG |
 | `press_button`, `advance_frames` | Raw input |
 | `advance_dialogue_tool` | Click through text until it ends or a yes/no prompt appears |
-| `walk_to_tool` | Walk to a tile on the current map (greedy, bump detection) |
+| `find_maps` | Search maps by name substring, returns warps, connections, objects and signs |
+| `goto_map` | A* walk to a map's first warp or to an `x, y` on any map, replans around NPCs |
+| `get_map` | ASCII render of the current map in step coordinates, to pick `goto_map` targets |
 
 ## Getting started
 

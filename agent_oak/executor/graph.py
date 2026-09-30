@@ -106,21 +106,6 @@ def check_crossings(world: World) -> list[str]:
     return problems
 
 
-def resolve_last_map(maps: dict[str, GameMap]) -> dict[str, set[str]]:
-    """Get possible LAST_MAP warps for every map.
-
-    LAST_MAP warps mean 'back where you came from'. Statically, that is the
-    set of maps that warp *into* this one. Use it as the edge fan-out, or carry
-    the previous map in your search state for an exact answer.
-    """
-    inbound: dict[str, set[str]] = {k: set() for k in maps}
-    for const, m in maps.items():
-        for w in m.warps:
-            if w.dest_map in inbound:
-                inbound[w.dest_map].add(const)
-    return inbound
-
-
 def shortest_path(
     world: World,
     start: Node,

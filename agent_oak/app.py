@@ -6,7 +6,10 @@ from threading import Lock, Thread
 
 from pyboy.utils import WindowEvent
 
-from agent_oak.parser.maps import parse_maps
+from agent_oak.executor.models import Node, World
+from agent_oak.executor.navigation import goto
+from agent_oak.memory.read import read_location
+from agent_oak.parser.maps import parse_maps, parse_tilesets
 from agent_oak.pyboy_mcp.emulator import create_emulator, load_symbols
 from agent_oak.pyboy_mcp.server import build_server
 
@@ -23,10 +26,21 @@ def main() -> None:
         help="start unpaused so the game runs freely and can be played by hand "
         "(press P in the window to toggle pause at any time)",
     )
+    parser.add_argument(
+        "--goto",
+        metavar="MAP",
+        help="debug: once in the overworld, walk to the first warp of MAP "
+        "(e.g. OAKS_LAB) and print the map whenever the player moves",
+    )
     args = parser.parse_args()
 
     syms = load_symbols(path=Path(SYM_PATH))
-    _, maps_by_id = parse_maps()
+    maps_by_name, maps_by_id = parse_maps()
+    tilesets_by_name, _ = parse_tilesets()
+    world = World(
+        maps=maps_by_name,
+        tilesets=tilesets_by_name,
+    )
     pyboy = create_emulator(rom_path=ROM_PATH)
     mem_lock = Lock()
 
@@ -38,6 +52,7 @@ def main() -> None:
         pyboy=pyboy,
         symbols=syms,
         maps_by_id=maps_by_id,
+        world=world,
         mem_lock=mem_lock,
     )
 
@@ -50,10 +65,44 @@ def main() -> None:
         daemon=True,
     ).start()
 
+    goal: Node | None = None
+    if args.goto:
+        warp = maps_by_name[args.goto].warps[0]
+        goal = (args.goto, warp.x, warp.y)
+    last_node: Node | None = None
+
     try:
         while True:
             with mem_lock:
                 still_running = pyboy.tick()
+
+                if goal is not None:
+                    try:
+                        loc = read_location(
+                            pyboy=pyboy,
+                            syms=syms,
+                            maps_by_id=maps_by_id,
+                        )
+                    except Exception:
+                        # e.g. title screen, wCurMap not a valid map yet
+                        loc = None
+
+                    node = None if loc is None else (loc.map.const, loc.x, loc.y)
+                    # only (re)plan when the player moved, not every frame
+                    if node is not None and node != last_node:
+                        last_node = node
+                        status = goto(
+                            pyboy=pyboy,
+                            syms=syms,
+                            maps_by_id=maps_by_id,
+                            world=world,
+                            goal=goal,
+                        )
+                        if status == "reached":
+                            print(f"Reached {goal}")
+                            goal = None
+                        else:
+                            print(f"goto stopped: {status}")
             if not still_running:
                 break
     finally:

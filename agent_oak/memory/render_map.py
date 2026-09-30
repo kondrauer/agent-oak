@@ -1,7 +1,10 @@
 """Render the current map."""
 
+from collections.abc import Sequence
+
 from pyboy import PyBoy
 
+from agent_oak.executor.models import Edge
 from agent_oak.memory.mappings import TILESET_BASE
 from agent_oak.memory.read import read_location, read_npcs
 from agent_oak.parser.maps import load_blocksets, parse_collision_tile_ids
@@ -113,6 +116,7 @@ def render_current_map(
     syms: dict[str, int],
     maps_by_id: dict[int, GameMap],
     maps_by_name: dict[str, GameMap],
+    path: Sequence[Edge] = (),
 ) -> str:
     """Render the current map as string."""
     loc = read_location(
@@ -141,6 +145,16 @@ def render_current_map(
             x=npc.x,
             y=npc.y,
             symbol="N",
+            grid=grid,
+        )
+
+    for edge in path:
+        if edge.dst[0] != loc.map.const:
+            continue
+        _place(
+            x=edge.dst[1],
+            y=edge.dst[2],
+            symbol="X",
             grid=grid,
         )
 

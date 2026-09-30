@@ -22,6 +22,37 @@ OPPOSITE: dict[Direction, Direction] = {
 
 Node = tuple[str, int, int]
 
+# tilesets pokered's CheckIfInOutsideMap treats as outside
+OUTDOOR_TILESETS = frozenset({"OVERWORLD", "PLATEAU"})
+
+# LAST_MAP warps where wLastMap is set by a map script instead of by warping.
+# Route22Gate's script picks ROUTE_22 or ROUTE_23 from the player's y, so
+# the south doors lead to route 22 and the north doors to route 23.
+LAST_MAP_OVERRIDES: dict[tuple[str, int], str] = {
+    ("ROUTE_22_GATE", 0): "ROUTE_22",
+    ("ROUTE_22_GATE", 1): "ROUTE_22",
+    ("ROUTE_22_GATE", 2): "ROUTE_23",
+    ("ROUTE_22_GATE", 3): "ROUTE_23",
+}
+
+
+def resolve_last_map(maps: dict[str, GameMap]) -> dict[str, set[str]]:
+    """Get possible LAST_MAP targets for every map.
+
+    LAST_MAP warps lead to wLastMap, which the game only updates when warping
+    out of an outdoor map. Statically, that is the set of outdoor maps that
+    warp *into* this one, which is exactly one map for every LAST_MAP warp
+    except those in LAST_MAP_OVERRIDES.
+    """
+    inbound: dict[str, set[str]] = {k: set() for k in maps}
+    for const, m in maps.items():
+        if m.tileset not in OUTDOOR_TILESETS:
+            continue
+        for w in m.warps:
+            if w.dest_map in inbound:
+                inbound[w.dest_map].add(const)
+    return inbound
+
 
 class Edge(BaseModel):
     """Edge in the world class."""
@@ -47,28 +78,41 @@ class World:
         self.tilesets = tilesets
         self.sign = connection_offset_sign
         self._warps_out: dict[Node, list[Edge]] = {}
+        # (x, y) of every warp tile leading into a map, keyed by that map
+        self._warp_sources_into: dict[str, set[tuple[int, int]]] = {}
         self._conns: dict[str, dict[Direction, Connection]] = {}
         self._index()
 
     def _index(self) -> None:
+        last_map = resolve_last_map(self.maps)
         for const, m in self.maps.items():
             self._conns[const] = {Direction(c.direction): c for c in m.connections}
             for i, w in enumerate(m.warps):
                 if w.dest_map == "LAST_MAP":
-                    continue
-                dest = self.maps.get(w.dest_map)
-                if dest is None:
-                    print(f"Dest map {w.dest_map} not found for warp {w}")
-                    continue
-                dw = dest.warps[self._warp_index(w.dest_warp)]
-                src: Node = (const, w.x, w.y)
-                self._warps_out.setdefault(src, []).append(
-                    Edge(
-                        dst=(w.dest_map, dw.x, dw.y),
-                        kind="warp",
-                        cost=1.0,
+                    override = LAST_MAP_OVERRIDES.get((const, i))
+                    targets = {override} if override else last_map[const]
+                else:
+                    targets = {w.dest_map}
+
+                for target in targets:
+                    dest = self.maps.get(target)
+                    if dest is None:
+                        print(f"Dest map {target} not found for warp {w}")
+                        continue
+                    idx = self._warp_index(w.dest_warp)
+                    if not 0 <= idx < len(dest.warps):
+                        print(f"Dest warp {w.dest_warp} not in {target} for warp {w}")
+                        continue
+                    dw = dest.warps[idx]
+                    src: Node = (const, w.x, w.y)
+                    self._warp_sources_into.setdefault(target, set()).add((w.x, w.y))
+                    self._warps_out.setdefault(src, []).append(
+                        Edge(
+                            dst=(target, dw.x, dw.y),
+                            kind="warp",
+                            cost=1.0,
+                        )
                     )
-                )
 
     @staticmethod
     def _warp_index(dest_warp: int) -> int:
@@ -101,6 +145,18 @@ class World:
             return False
 
         return 0 <= x < m.step_width and 0 <= y < m.step_height
+
+    def maybe_mid_warp(self, node: Node) -> bool:
+        """Whether 'node' could be a half written position during a warp.
+
+        The game sets wCurMap as soon as a warp is taken but only writes the
+        destination x, y after the fade, so for a while the position reads as
+        the new map with the coordinates of the warp tile it was entered from.
+        """
+        const, x, y = node
+        return not self.in_bounds(node) or (x, y) in self._warp_sources_into.get(
+            const, ()
+        )
 
     def collision_tile(
         self,

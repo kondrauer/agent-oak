@@ -107,6 +107,11 @@ def parse_maps(
                 .split(",")
             )
 
+            # the unused UndergroundPathRoute7Copy reuses the const of the
+            # real map, keep the first (real) one
+            if const in maps_by_name:
+                continue
+
             blk_path = Path(f"maps/{label}.blk")
             try:
                 with blk_path.open(mode="rb") as blk_file:
@@ -207,6 +212,28 @@ def parse_maps(
         maps_by_id[map_const.idx] = game_map
 
     return maps_by_name, maps_by_id
+
+
+def _normalize(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def search_maps(
+    maps_by_name: dict[str, GameMap],
+    query: str,
+) -> list[GameMap]:
+    """Find maps whose const or label contains 'query'.
+
+    Case, spaces, underscores and apostrophes are ignored, so "oak's lab",
+    "OAKS_LAB" and "OaksLab" all match OAKS_LAB.
+    """
+    needle = _normalize(query)
+    return [
+        m
+        for const, m in maps_by_name.items()
+        if const != "LAST_MAP"
+        and (needle in _normalize(const) or needle in _normalize(m.label))
+    ]
 
 
 def parse_pair_collision_tile_ids(
