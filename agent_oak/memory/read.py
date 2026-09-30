@@ -75,6 +75,7 @@ FACING = {
 }
 WY_HIDDEN = 0x90  # hWY value when no textbox/menu window is being drawn
 SPRITE_STRUCT_LEN = 0x10
+ENEMY_NOT_LOADED = 0xFF  # wEnemyMonPartyPos before a trainer sends out
 MAX_SPRITES = 16  # slot 0 is the player
 
 SPECIES = by_id(Path("constants/pokemon_constants.asm"))
@@ -173,10 +174,10 @@ def _parse_pokemon(
         moves=[MOVES[m] for m in data[0x08:0x0C]],
         pp=list(data[0x1D:0x21]),
         stats=PokemonStats(
-            attack=u16_big_endian(data, 0x14),
-            defense=u16_big_endian(data, 0x15),
-            speed=u16_big_endian(data, 0x16),
-            special=u16_big_endian(data, 0x17),
+            attack=u16_big_endian(data, 0x24),
+            defense=u16_big_endian(data, 0x26),
+            speed=u16_big_endian(data, 0x28),
+            special=u16_big_endian(data, 0x2A),
         ),
         experience=(data[0x0E] << 16) | (data[0x0F] << 8) | data[0x10],
     )
@@ -794,9 +795,21 @@ def read_battle_state(
     Returns:
         A BattleState object representing the current battle state.
     """
-    in_battle = pyboy.memory[syms["wIsInBattle"]] != 0
+    is_in_battle = pyboy.memory[syms["wIsInBattle"]]
+    in_battle = is_in_battle != 0
     battle_type = (
-        BattleType(pyboy.memory[syms["wBattleType"]]) if in_battle else "unknown"
+        BattleType(is_in_battle)
+        if is_in_battle in BattleType._value2member_map_
+        else "unknown"
+    )
+    # wIsInBattle is set before the mons are loaded, until then wBattleMon
+    # and wEnemyMon still hold the last battle. Battle init clears
+    # wBattleMonSpecies, trainer battles set wEnemyMonPartyPos to $ff until
+    # the first enemy mon is loaded.
+    player_out = in_battle and pyboy.memory[syms["wBattleMonSpecies"]] != 0
+    enemy_out = in_battle and not (
+        battle_type == BattleType.TRAINER
+        and pyboy.memory[syms["wEnemyMonPartyPos"]] == ENEMY_NOT_LOADED
     )
     player_pokemon = (
         _parse_battle_pokemon(
@@ -805,7 +818,7 @@ def read_battle_state(
             "wBattleMon",
             include_nick=True,
         )
-        if in_battle
+        if player_out
         else None
     )
     enemy_pokemon = (
@@ -815,7 +828,7 @@ def read_battle_state(
             "wEnemyMon",
             include_nick=False,
         )
-        if in_battle
+        if enemy_out
         else None
     )
 

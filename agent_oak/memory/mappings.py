@@ -42,10 +42,10 @@ TILESET_BASE = {
 
 
 class BattleType(int, Enum):
-    """Battle type enumeration."""
+    """Battle type enumeration, the values of wIsInBattle."""
 
-    WILD = 0
-    TRAINER = 1
+    WILD = 1
+    TRAINER = 2
 
 
 class PokemonTypes(int, Enum):
