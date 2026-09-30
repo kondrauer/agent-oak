@@ -309,6 +309,30 @@ def parse_water_tilesets(
     return water_tilesets_names
 
 
+def parse_tileset_headers(
+    tileset_headers: Path = Path("data/tilesets/tileset_headers.asm"),
+) -> dict[str, tuple[set[int], int | None]]:
+    """Parse counter tiles and grass tile per tileset.
+
+    Keys are lowercased names without underscores, e.g. "redshouse1".
+    """
+    headers: dict[str, tuple[set[int], int | None]] = {}
+
+    with tileset_headers.open() as file:
+        for line in file.readlines():
+            line = line.strip()
+            if not line.startswith("tileset "):
+                continue
+            # name, 3 counter tiles, grass tile, animations; -1 means none
+            name, *values = [
+                v.strip() for v in line.replace("tileset", "", 1).split(",")
+            ]
+            tiles = [None if v == "-1" else int(v.lstrip("$"), 16) for v in values[:4]]
+            headers[name.lower()] = ({t for t in tiles[:3] if t is not None}, tiles[3])
+
+    return headers
+
+
 def parse_ledge_tile_ids(
     ledge_tiles: Path = Path("data/tilesets/ledge_tiles.asm"),
 ) -> list[tuple[Direction, int, int]]:
@@ -384,6 +408,7 @@ def parse_tilesets() -> tuple[dict[str, Tileset], dict[int, Tileset]]:
     ledge_tiles = parse_ledge_tile_ids()
     water_tilesets = parse_water_tilesets()
     pair_collisions_land, pair_collisions_water = parse_pair_collision_tile_ids()
+    headers = parse_tileset_headers()
 
     tilesets_by_name: dict[str, Tileset] = {}
     tilesets_by_id: dict[int, Tileset] = {}
@@ -400,10 +425,13 @@ def parse_tilesets() -> tuple[dict[str, Tileset], dict[int, Tileset]]:
             if name != "SHIP_PORT":
                 water |= SHORE_TILES
 
+        counter_tiles, grass_tile = headers[name.replace("_", "").lower()]
         tileset = Tileset(
             name=name,
             blocks=blocksets[blockset],
             collision=collision_tile_ids[name.replace("_", "").lower()],
+            counter_tiles=counter_tiles,
+            grass_tile=grass_tile,
             water=water,
             pair_collisions_land=pair_collisions_land[name],
             pair_collisions_water=pair_collisions_water[name],

@@ -6,25 +6,28 @@ from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
 from pyboy import PyBoy
 
-from agent_oak.executor.dialogue import advance_dialogue
-from agent_oak.executor.models import World
+from agent_oak.executor.dialogue import advance_dialogue, select_option, talk_to
+from agent_oak.executor.models import TalkResult, World
 from agent_oak.executor.navigation import goto
 from agent_oak.memory.models import (
     BagItems,
     BattleState,
     Button,
-    Dialogue,
+    DialogueResult,
+    MapObjects,
     ObtainedBadges,
     PlayerLocation,
     Pokemon,
+    TextState,
 )
 from agent_oak.memory.read import (
     read_badges,
     read_bag,
     read_battle_state,
-    read_dialogue_text,
     read_location,
+    read_map_objects,
     read_party,
+    read_text_state,
 )
 from agent_oak.memory.render_map import render_current_map
 from agent_oak.parser.maps import search_maps
@@ -55,19 +58,86 @@ def build_server(
     )
 
     @mcp.tool()
-    def advance_dialogue_tool(timeout_frames: int = 600) -> dict[str, str | bool]:
-        """Advances a dialogue until exhausted or yes/no question is reached.
+    def advance_dialogue_tool(timeout_frames: int = 1800) -> DialogueResult:
+        """Read and click through text until it ends or a choice is needed.
+
+        Only presses A on finished pages, never inside menus. Stops at yes/no
+        prompts and other menus (answer with select_option_tool) and at the
+        battle menu (FIGHT / PKMN / ITEM / RUN). Waits through scripted scenes
+        like an NPC walking the player somewhere.
 
         Args:
-            timeout_frames: The maximum number of frames to wait before timing out.
+            timeout_frames: Frame budget, call again after a timeout to go on.
         Returns:
-            A dictionary containing the status and collected text.
+            'status' (done, menu, battle_menu or timeout), every line shown
+                in order, and the menu waiting for a choice, if any.
         """
         with running(pyboy=pyboy, mem_lock=mem_lock):
             return advance_dialogue(
                 pyboy=pyboy,
                 syms=symbols,
                 timeout_frames=timeout_frames,
+            )
+
+    @mcp.tool()
+    def select_option_tool(index: int, timeout_frames: int = 1800) -> DialogueResult:
+        """Choose an option of the open menu and read what follows.
+
+        Works for yes/no prompts and other vertical menus (Pokecenter, shop,
+        start menu). The battle menu is not supported yet.
+
+        Args:
+            index: Index into the menu's options, e.g. 0 for YES, 1 for NO.
+            timeout_frames: Frame budget for the dialogue after the choice.
+        Returns:
+            The dialogue after the choice, like advance_dialogue_tool.
+        """
+        with running(pyboy=pyboy, mem_lock=mem_lock):
+            return select_option(
+                pyboy=pyboy,
+                syms=symbols,
+                index=index,
+                timeout_frames=timeout_frames,
+            )
+
+    @mcp.tool()
+    def talk_to_tool(x: int, y: int) -> TalkResult:
+        """Walk next to an NPC, sign or object on the current map and talk to it.
+
+        Walks around the target to a free tile next to it (or across a
+        counter, like the Pokecenter nurse), faces it, presses A and reads
+        the dialogue. Follows an NPC that walks away once.
+
+        Args:
+            x: Target x in steps on the current map (see get_npcs).
+            y: Target y in steps on the current map (see get_npcs).
+        Returns:
+            'walk' (reached, or why the target could not be reached, e.g.
+                in_battle) and the dialogue if it was started.
+        """
+        with running(pyboy=pyboy, mem_lock=mem_lock):
+            return talk_to(
+                pyboy=pyboy,
+                syms=symbols,
+                maps_by_id=maps_by_id,
+                world=world,
+                x=x,
+                y=y,
+            )
+
+    @mcp.tool()
+    def get_npcs() -> MapObjects:
+        """List the NPCs and signs on the current map.
+
+        Returns:
+            Visible NPCs with their live position, facing and static data
+                (sprite, text, trainer or item), and the map's signs.
+        """
+        with mem_lock:
+            return read_map_objects(
+                pyboy=pyboy,
+                syms=symbols,
+                maps_by_id=maps_by_id,
             )
 
     @mcp.tool()
@@ -240,15 +310,15 @@ def build_server(
             )
 
     @mcp.tool()
-    def get_dialogue() -> Dialogue:
-        """Get the current dialogue text from the emulator.
+    def get_dialogue() -> TextState:
+        """Get what the text box currently shows, without pressing anything.
 
         Returns:
-            A Dialogue object representing the current dialogue text
-                and whether it exists.
+            Whether a text box is open, its lines, whether the game waits
+                for A and the menu waiting for a choice, if any.
         """
         with mem_lock:
-            return read_dialogue_text(
+            return read_text_state(
                 pyboy=pyboy,
                 syms=symbols,
             )

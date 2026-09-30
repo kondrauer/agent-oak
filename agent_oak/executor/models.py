@@ -2,8 +2,9 @@
 
 from typing import Iterator, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from agent_oak.memory.models import DialogueResult
 from agent_oak.parser.models import Connection, Direction, GameMap, Tileset
 
 DELTA: dict[Direction, tuple[int, int]] = {
@@ -21,6 +22,8 @@ OPPOSITE: dict[Direction, Direction] = {
 }
 
 Node = tuple[str, int, int]
+
+GotoStatus = Literal["reached", "in_battle", "dialogue_open", "no_path", "gave_up"]
 
 # tilesets pokered's CheckIfInOutsideMap treats as outside
 OUTDOOR_TILESETS = frozenset({"OVERWORLD", "PLATEAU"})
@@ -62,6 +65,17 @@ class Edge(BaseModel):
     direction: Direction | None = None
     requires: frozenset[str] = frozenset()
     cost: float = 1.0
+
+
+class TalkResult(BaseModel):
+    """Outcome of walking up to something and talking to it."""
+
+    walk: GotoStatus = Field(
+        description="reached, or why the player could not get next to the target"
+    )
+    dialogue: DialogueResult | None = Field(
+        default=None, description="Set when the conversation was started"
+    )
 
 
 class World:

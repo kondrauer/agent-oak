@@ -1,6 +1,7 @@
 """Data models for Pokemon MCP memory parsing."""
 
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_serializer
 
@@ -10,6 +11,7 @@ from agent_oak.memory.mappings import (
     StatusFlags,
 )
 from agent_oak.parser.maps import GameMap
+from agent_oak.parser.models import Direction, MapObject, Sign
 
 
 class Button(str, Enum):
@@ -25,11 +27,34 @@ class Button(str, Enum):
     RIGHT = "right"
 
 
-class Dialogue(BaseModel):
-    """Data model for dialogue text."""
+class Menu(BaseModel):
+    """A menu or prompt waiting for a choice."""
 
-    text: str
-    has_dialogue: bool
+    kind: Literal["menu", "battle_menu"] = Field(
+        description="battle_menu is the FIGHT / PKMN / ITEM / RUN menu"
+    )
+    options: list[str]
+    selected: int = Field(description="Index of the option under the cursor")
+
+
+class TextState(BaseModel):
+    """What the text box currently shows."""
+
+    box_open: bool
+    text: list[str] = Field(description="Lines currently in the text box")
+    waiting_for_a: bool = Field(description="The continue arrow is shown")
+    menu: Menu | None = None
+
+
+class DialogueResult(BaseModel):
+    """Outcome of advancing a dialogue."""
+
+    status: Literal["done", "menu", "battle_menu", "timeout"] = Field(
+        description="done: text box closed, menu/battle_menu: waiting for a "
+        "choice, timeout: still running after the frame budget"
+    )
+    text: str = Field(description="Every line shown, in order")
+    menu: Menu | None = None
 
 
 class Item(BaseModel):
@@ -179,3 +204,24 @@ class Npc(BaseModel):
     y: int
     x: int
     facing: int
+
+
+class NpcInfo(BaseModel):
+    """Live NPC position joined with its static map object."""
+
+    slot: int
+    x: int
+    y: int
+    facing: Direction | None
+    object: MapObject | None = Field(
+        default=None,
+        description="Static data from the map header (sprite, text, trainer, item)",
+    )
+
+
+class MapObjects(BaseModel):
+    """Things on the current map the player can talk to."""
+
+    map: str
+    npcs: list[NpcInfo]
+    signs: list[Sign]
