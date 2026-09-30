@@ -114,6 +114,28 @@ def _press_button_with_delay(
     )
 
 
+def _edge_button(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+    maps_by_id: dict[int, GameMap],
+) -> Button | None:
+    """Get the button that walks off the map edge the player stands on."""
+    loc = read_location(
+        pyboy=pyboy,
+        syms=syms,
+        maps_by_id=maps_by_id,
+    )
+    if loc.y == loc.map.step_height - 1:
+        return Button.DOWN
+    if loc.y == 0:
+        return Button.UP
+    if loc.x == 0:
+        return Button.LEFT
+    if loc.x == loc.map.step_width - 1:
+        return Button.RIGHT
+    return None
+
+
 def _execute_step(
     pyboy: PyBoy,
     syms: dict[str, int],
@@ -132,12 +154,20 @@ def _execute_step(
             target=step.dst,
             frames=MAP_TRANSITION_TIMEOUT_FRAMES,
         ):
-            # edge of map warps (house mats) need another push in the
-            # direction we came from
-            if last_button is None:
+            # edge of map warps (house mats) need a push off the map edge,
+            # which is not the direction we came from when entering the mat
+            # from the side
+            button = (
+                _edge_button(
+                    pyboy=pyboy,
+                    syms=syms,
+                    maps_by_id=maps_by_id,
+                )
+                or last_button
+            )
+            if button is None:
                 return False
-            print(last_button)
-            _press_button_with_delay(pyboy=pyboy, button=last_button)
+            _press_button_with_delay(pyboy=pyboy, button=button)
             if not _tick_until(
                 pyboy=pyboy,
                 syms=syms,

@@ -1,5 +1,7 @@
 """Functions for driving dialogues."""
 
+import re
+
 from pyboy import PyBoy
 
 from agent_oak.executor.graph import shortest_path
@@ -7,6 +9,7 @@ from agent_oak.executor.models import DELTA, Node, TalkResult, World
 from agent_oak.executor.navigation import BUTTON_FOR, _get_current_node, goto
 from agent_oak.memory.models import Button, DialogueResult, Menu
 from agent_oak.memory.read import (
+    DEX_HEADER_LINES,
     read_in_battle,
     read_is_dialogue_open,
     read_npcs,
@@ -44,6 +47,22 @@ def _append_page(
     lines.extend(page)
 
 
+def join_texts(texts: list[str]) -> str:
+    """Join the texts of consecutive dialogue calls.
+
+    A page still on screen when the next call starts is read by both, so
+    overlapping lines are only kept once.
+    """
+    lines: list[str] = []
+    for text in texts:
+        if text:
+            _append_page(
+                lines,
+                text.split("\n"),
+            )
+    return "\n".join(lines)
+
+
 def _press(
     pyboy: PyBoy,
     button: Button,
@@ -51,6 +70,38 @@ def _press(
 ) -> None:
     pyboy.button(button.value, delay=PRESS_FRAMES)
     pyboy.tick(frames)
+
+
+def normalize_name(name: str) -> str:
+    """Normalize a move, item or Pokemon name for comparison.
+
+    "POKé BALL", "Poke Ball" and "POKE_BALL" all become "POKEBALL".
+    """
+    return re.sub(r"[^A-Z0-9]", "", name.upper().replace("É", "E"))
+
+
+def current_menu(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> tuple[Menu | None, list[str]]:
+    """Get the menu waiting for a choice, finishing pending text first.
+
+    Returns:
+        The menu (None when the dialogue ended without one) and the text
+            read on the way there.
+    """
+    menu = read_text_state(
+        pyboy=pyboy,
+        syms=syms,
+    ).menu
+    if menu is not None:
+        return menu, []
+
+    result = advance_dialogue(
+        pyboy=pyboy,
+        syms=syms,
+    )
+    return result.menu, [result.text] if result.text else []
 
 
 def advance_dialogue(
@@ -61,8 +112,8 @@ def advance_dialogue(
     """Read and click through text until it ends or a choice is needed.
 
     A is only pressed on a finished page (continue arrow shown, or the text
-    has not changed for a while), never while a menu is open. In battle it
-    stops at the FIGHT / PKMN / ITEM / RUN menu.
+    has not changed for a while), never while a menu or quantity prompt is
+    open. In battle it stops at the FIGHT / PKMN / ITEM / RUN menu.
 
     Args:
         pyboy: The PyBoy instance to read memory from and send input to.
@@ -73,6 +124,7 @@ def advance_dialogue(
     """
     lines: list[str] = []
     last_text: list[str] | None = None
+    dex_header: list[str] | None = None
     stable = closed = 0
     frame = 0
 
@@ -90,6 +142,16 @@ def advance_dialogue(
                 status="battle_menu" if state.menu.kind == "battle_menu" else "menu",
                 text="\n".join(lines),
                 menu=state.menu,
+            )
+        if state.quantity is not None:
+            _append_page(
+                lines,
+                state.text,
+            )
+            return DialogueResult(
+                status="quantity",
+                text="\n".join(lines),
+                quantity=state.quantity,
             )
 
         # scripted scenes (NPC walking the player somewhere) lock the joypad
@@ -109,9 +171,16 @@ def advance_dialogue(
         last_text = state.text
 
         if state.text and (state.waiting_for_a or stable >= PAGE_STABLE_FRAMES):
+            page = state.text
+            # later pages of a Pokedex entry repeat its name and category
+            if state.dex_entry:
+                header = page[:DEX_HEADER_LINES]
+                if header == dex_header:
+                    page = page[DEX_HEADER_LINES:]
+                dex_header = header
             _append_page(
                 lines,
-                state.text,
+                page,
             )
             _press(
                 pyboy=pyboy,
@@ -176,6 +245,66 @@ def select_option(
             break
     else:
         raise RuntimeError(f"Option {index} was not accepted")
+    return advance_dialogue(pyboy=pyboy, syms=syms, timeout_frames=timeout_frames)
+
+
+def choose_quantity(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+    quantity: int,
+    timeout_frames: int = 1800,
+) -> DialogueResult:
+    """Set the ×NN quantity prompt, confirm it and advance the dialogue.
+
+    UP and DOWN change the quantity by one and wrap around between 1 and the
+    maximum, so this goes whichever way is shorter.
+
+    Args:
+        pyboy: The PyBoy instance to read memory from and send input to.
+        syms: A dictionary of constant names to their values.
+        quantity: How many items, 1 up to the prompt's max.
+        timeout_frames: Frame budget for the dialogue after the choice.
+    Returns:
+        What followed the choice, see advance_dialogue.
+    """
+    prompt = read_text_state(
+        pyboy=pyboy,
+        syms=syms,
+    ).quantity
+    if prompt is None:
+        raise ValueError("No quantity prompt is open")
+    if not 1 <= quantity <= prompt.max:
+        raise ValueError(f"Quantity {quantity} out of range 1..{prompt.max}")
+
+    pyboy.tick(MENU_SETTLE_FRAMES)
+    for _ in range(prompt.max):
+        current = read_text_state(
+            pyboy=pyboy,
+            syms=syms,
+        ).quantity
+        if current is None:
+            raise RuntimeError("The quantity prompt closed")
+        if current.value == quantity:
+            break
+        up = (quantity - current.value) % prompt.max
+        _press(
+            pyboy=pyboy,
+            button=Button.UP if up <= prompt.max - up else Button.DOWN,
+            frames=MENU_MOVE_FRAMES,
+        )
+    else:
+        raise RuntimeError(f"Could not set the quantity to {quantity}")
+
+    for _ in range(MENU_PRESS_TRIES):
+        _press(
+            pyboy=pyboy,
+            button=Button.A,
+            frames=MENU_SETTLE_FRAMES,
+        )
+        if read_text_state(pyboy=pyboy, syms=syms).quantity is None:
+            break
+    else:
+        raise RuntimeError("Quantity was not accepted")
     return advance_dialogue(pyboy=pyboy, syms=syms, timeout_frames=timeout_frames)
 
 
