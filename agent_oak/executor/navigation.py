@@ -1,11 +1,9 @@
 """Functions for exectuing navigation."""
 
-from typing import Literal
-
 from pyboy import PyBoy
 
 from agent_oak.executor.graph import shortest_path
-from agent_oak.executor.models import Edge, Node, World
+from agent_oak.executor.models import Edge, GotoStatus, Node, World
 from agent_oak.memory.models import Button
 from agent_oak.memory.read import (
     read_in_battle,
@@ -22,8 +20,6 @@ WALK_SETTLE_FRAMES = 8
 WALK_TIMEOUT_FRAMES = 40
 MAP_TRANSITION_SETTLE_FRAMES = 60
 MAP_TRANSITION_TIMEOUT_FRAMES = 120
-
-GotoStatus = Literal["reached", "in_battle", "dialogue_open", "no_path", "gave_up"]
 
 BUTTON_FOR = {
     Direction.NORTH: Button.UP,

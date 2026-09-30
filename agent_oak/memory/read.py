@@ -16,23 +16,45 @@ from agent_oak.memory.models import (
     BattlePokemon,
     BattleState,
     BattleType,
-    Dialogue,
     Item,
+    MapObjects,
+    Menu,
     Npc,
+    NpcInfo,
     ObtainedBadge,
     ObtainedBadges,
     PlayerLocation,
     Pokemon,
     PokemonStats,
+    TextState,
     Warp,
 )
 from agent_oak.parser.constants import by_id
-from agent_oak.parser.models import GameMap
+from agent_oak.parser.models import Direction, GameMap
 
 PARTY_STRUCT_LEN = 44
 NAME_LEN = 11
 TILEMAP_WIDTH = 20
+TILEMAP_HEIGHT = 18
 CURSOR_TILE = 0xED
+CONTINUE_ARROW_TILE = 0xEE
+SPACE_TILE = 0x7F
+BORDER_TILE = 0x7C  # │
+# corners of the text box along the bottom of the screen, (x, y): tile
+TEXT_BOX_CORNERS = {(0, 12): 0x79, (19, 12): 0x7B, (0, 17): 0x7D, (19, 17): 0x7E}
+TEXT_BOX_ROWS = range(13, 17)
+# Pokedex entry (new catch, starter): frame corner and the divider row
+DEX_ENTRY_TILES = {(0, 0): 0x63, (0, 9): 0x68}
+# name and category next to the picture, then the description below
+DEX_ENTRY_ROWS = ((2, 1, 19), (4, 1, 19), *((y, 1, 19) for y in range(10, 17)))
+CONTINUE_ARROW_POS = (18, 16)
+# sprite facing byte, SPRITESTATEDATA1_FACINGDIRECTION
+FACING = {
+    0x0: Direction.SOUTH,
+    0x4: Direction.NORTH,
+    0x8: Direction.WEST,
+    0xC: Direction.EAST,
+}
 WY_HIDDEN = 0x90  # hWY value when no textbox/menu window is being drawn
 SPRITE_STRUCT_LEN = 0x10
 MAX_SPRITES = 16  # slot 0 is the player
@@ -204,24 +226,6 @@ def decode_status(b: int) -> list[str]:
     return out
 
 
-def read_yes_no_prompt_detected(
-    pyboy: PyBoy,
-    syms: dict[str, int],
-) -> bool:
-    """Check if a yes/no prompt is currently open.
-
-    Args:
-        pyboy: The PyBoy instance to read memory from.
-        syms: A dictionary of constant names to their values.
-    Returns:
-        True if a yes/no prompt is open, False otherwise.
-    """
-    base = syms["wTileMap"]
-    grid = bytes(pyboy.memory[base : base + 20 * 18])
-    text = decode_text(grid)
-    return "YES" in text and "NO" in text and CURSOR_TILE in grid
-
-
 def read_is_dialogue_open(
     pyboy: PyBoy,
     syms: dict[str, int],
@@ -259,32 +263,122 @@ def read_in_battle(
     return pyboy.memory[syms["wIsInBattle"]] != 0
 
 
-def read_dialogue_text(
+def _read_tile_map(
     pyboy: PyBoy,
     syms: dict[str, int],
-    rows: range = range(12, 18),
-) -> Dialogue:
-    """Read the current dialogue text from the emulator's memory.
+) -> bytes:
+    base = syms["wTileMap"]
+    return bytes(pyboy.memory[base : base + TILEMAP_WIDTH * TILEMAP_HEIGHT])
+
+
+def _tile(
+    tiles: bytes,
+    x: int,
+    y: int,
+) -> int:
+    return tiles[y * TILEMAP_WIDTH + x]
+
+
+def _decode_row(
+    tiles: bytes,
+    y: int,
+    x0: int = 0,
+    x1: int = TILEMAP_WIDTH,
+) -> str:
+    row = tiles[y * TILEMAP_WIDTH + x0 : y * TILEMAP_WIDTH + x1]
+    # 0x00 would end decode_text early, it is a graphics tile here
+    return decode_text(bytes(SPACE_TILE if b == 0 else b for b in row))
+
+
+def _read_menu(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+    tiles: bytes,
+) -> Menu | None:
+    """Read the menu under the ▶ cursor, if one is shown.
+
+    Menu RAM keeps its values after a menu closes, so only a visible cursor
+    counts. Options are drawn every second row starting at wTopMenuItemY,
+    right of the cursor column wTopMenuItemX.
+    """
+    cursors = [
+        divmod(i, TILEMAP_WIDTH)[::-1] for i, t in enumerate(tiles) if t == CURSOR_TILE
+    ]
+    if not cursors:
+        return None
+
+    if read_in_battle(pyboy=pyboy, syms=syms) and "FIGHT" in "".join(
+        _decode_row(tiles, y) for y in range(12, 18)
+    ):
+        # 2x2 grid: FIGHT PKMN / ITEM RUN
+        x, y = cursors[0]
+        return Menu(
+            kind="battle_menu",
+            options=["FIGHT", "PKMN", "ITEM", "RUN"],
+            selected=(2 if y > 14 else 0) + (1 if x > 12 else 0),
+        )
+
+    top_x = pyboy.memory[syms["wTopMenuItemX"]]
+    top_y = pyboy.memory[syms["wTopMenuItemY"]]
+    max_item = pyboy.memory[syms["wMaxMenuItem"]]
+    selected = pyboy.memory[syms["wCurrentMenuItem"]]
+
+    options = []
+    for i in range(max_item + 1):
+        y = top_y + 2 * i
+        if not 0 <= top_x < TILEMAP_WIDTH - 1 or y >= TILEMAP_HEIGHT:
+            break
+        row = tiles[y * TILEMAP_WIDTH : (y + 1) * TILEMAP_WIDTH]
+        end = next(
+            (x for x in range(top_x + 1, TILEMAP_WIDTH) if row[x] == BORDER_TILE),
+            TILEMAP_WIDTH,
+        )
+        options.append(_decode_row(tiles, y, top_x + 1, end).strip())
+
+    return Menu(kind="menu", options=options, selected=selected)
+
+
+def read_text_state(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> TextState:
+    """Read what the text box at the bottom of the screen shows.
+
+    A Pokedex entry counts as an open box too, it waits for A the same way.
 
     Args:
         pyboy: The emulator instance to read from.
         syms: The symbol table mapping names to addresses.
-        rows: The range of text box rows to read from (default is 12-17).
     Returns:
-        The decoded dialogue text currently displayed in the text box.
+        Whether the box is open, its lines, whether the game waits for A
+            (continue arrow) and the menu waiting for a choice, if any.
     """
-    base = syms["wTileMap"]
-    lines = []
-    for row in rows:
-        row_start = base + row * TILEMAP_WIDTH
-        row_bytes = bytes(pyboy.memory[row_start : row_start + TILEMAP_WIDTH])
-        decoded = decode_text(data=row_bytes).rstrip()
-        if decoded:
-            lines.append(decoded)
-    return Dialogue(
-        text="\n".join(lines),
-        has_dialogue=bool(lines),
+    tiles = _read_tile_map(pyboy=pyboy, syms=syms)
+    if all(_tile(tiles, x, y) == t for (x, y), t in TEXT_BOX_CORNERS.items()):
+        rows = [(y, 1, TILEMAP_WIDTH - 1) for y in TEXT_BOX_ROWS]
+    elif all(_tile(tiles, x, y) == t for (x, y), t in DEX_ENTRY_TILES.items()):
+        rows = list(DEX_ENTRY_ROWS)
+    else:
+        rows = []
+
+    box_open = bool(rows)
+    text = []
+    for y, x0, x1 in rows:
+        line = _decode_row(tiles, y, x0, x1).replace("▼", "").strip()
+        if line:
+            text.append(line)
+    return TextState(
+        box_open=box_open,
+        text=text,
+        waiting_for_a=box_open
+        and _tile(tiles, *CONTINUE_ARROW_POS) == CONTINUE_ARROW_TILE,
+        menu=_read_menu(pyboy=pyboy, syms=syms, tiles=tiles),
     )
+
+
+def read_player_facing(pyboy: PyBoy, syms: dict[str, int]) -> Direction | None:
+    """Read the direction the player is facing."""
+    return FACING.get(pyboy.memory[syms["wSpritePlayerStateData1FacingDirection"]])
 
 
 def read_party(
@@ -369,6 +463,41 @@ def read_npcs(pyboy: PyBoy, syms: dict[str, int]) -> list[Npc]:
             )
         )
     return npcs
+
+
+def read_map_objects(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+    maps_by_id: dict[int, GameMap],
+) -> MapObjects:
+    """Read the NPCs and signs of the current map.
+
+    Sprite slot n is the n-th object_event of the map header, so live
+    positions are joined with the static object data by slot.
+
+    Args:
+        pyboy: The emulator instance to read from.
+        syms: The symbol table mapping names to addresses.
+        maps_by_id: Mapping of GameMaps to respective id.
+    Returns:
+        The visible NPCs with their current position and the map's signs.
+    """
+    game_map = maps_by_id[pyboy.memory[syms["wCurMap"]]]
+    npcs = [
+        NpcInfo(
+            slot=npc.slot,
+            x=npc.x,
+            y=npc.y,
+            facing=FACING.get(npc.facing),
+            object=(
+                game_map.map_objects[npc.slot - 1]
+                if npc.slot <= len(game_map.map_objects)
+                else None
+            ),
+        )
+        for npc in read_npcs(pyboy=pyboy, syms=syms)
+    ]
+    return MapObjects(map=game_map.const, npcs=npcs, signs=game_map.signs)
 
 
 def read_location(

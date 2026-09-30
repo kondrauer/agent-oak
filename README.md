@@ -24,10 +24,13 @@ LLM client ──MCP (HTTP)──▶ FastMCP server ──▶ PyBoy (Pokémon Re
 | Tool | Purpose |
 | --- | --- |
 | `get_party`, `get_bag`, `get_badges`, `get_location` | Player state |
-| `get_battle_state`, `get_dialogue` | Battle and text state |
+| `get_battle_state`, `get_dialogue` | Battle state, text box contents and open menu |
 | `get_screenshot` | Current screen as PNG |
 | `press_button`, `advance_frames` | Raw input |
-| `advance_dialogue_tool` | Click through text until it ends or a yes/no prompt appears |
+| `advance_dialogue_tool` | Read and click through text page by page, stops at menus, prompts and the battle menu |
+| `select_option_tool` | Pick an option of the open menu (yes/no, shop, ...) and read what follows |
+| `talk_to_tool` | Walk next to an NPC or sign (also across counters), face it and talk |
+| `get_npcs` | NPCs with live positions and their map data, plus the map's signs |
 | `find_maps` | Search maps by name substring, returns warps, connections, objects and signs |
 | `goto_map` | A* walk to a map's first warp or to an `x, y` on any map, replans around NPCs |
 | `get_map` | ASCII render of the current map in step coordinates, to pick `goto_map` targets |
