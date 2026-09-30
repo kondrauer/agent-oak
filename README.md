@@ -2,7 +2,7 @@
 
 An LLM playing Pokémon Red in a meaningful way. Instead of mashing buttons from screenshots, the model gets structured game state and high-level actions over [MCP](https://modelcontextprotocol.io), so it can plan and reason about the game.
 
-> **Status:** early work in progress. The emulator bridge and memory readers work. The world model and pathfinding exist but are not yet connected to the MCP tools.
+> **Status:** work in progress. Using only the MCP tools, an LLM played a new save from Pallet Town to the Boulder Badge. Known issues from that run are listed in [BUGS.md](BUGS.md).
 
 ## How it works
 
@@ -17,7 +17,7 @@ LLM client ──MCP (HTTP)──▶ FastMCP server ──▶ PyBoy (Pokémon Re
 - **`agent_oak/pyboy_mcp`**: the emulator wrapper and the MCP server that exposes the tools.
 - **`agent_oak/memory`**: typed readers for party, bag, badges, location, battle state, dialogue text, warps and NPCs, plus an ASCII render of the current map.
 - **`agent_oak/parser`**: parses the [pokered](https://github.com/pret/pokered) sources (`constants/`, `data/maps/`, `maps/*.blk`, `gfx/`) into maps, warps, connections, objects, tilesets and collision data.
-- **`agent_oak/executor`**: actions that span many frames: dialogue advancing, greedy `walk_to`, and the new `World` model with A* `shortest_path` over tiles, warps, map connections and ledges.
+- **`agent_oak/executor`**: actions that span many frames: advancing dialogue, battle, item and mart actions, and the `World` model with A* `shortest_path` over tiles, warps, map connections and ledges. Multi-step actions stop early at interrupts (wild battles, trainers spotting the player, text boxes) and report why. The caller handles the interrupt and calls again to continue.
 
 ### MCP tools
 
@@ -68,7 +68,9 @@ Then point any MCP client at the server. `.vscode/mcp.json` has a ready-made con
 - [x] Items in and out of battle, buying and selling (scrolling list menus)
 - [ ] TMs and HMs (teach, replace a move, field moves like CUT)
 - [x] Talk-to-NPC and menu/item actions
-- [ ] Interrupt handling (wild battles, dialogues) during multi-step actions
+- [x] Interrupt handling (wild battles, dialogues) during multi-step actions
+- [x] Beat the first gym end to end over MCP
+- [ ] Fix the playtest findings in [BUGS.md](BUGS.md) (party stats, battle type, stale battle text, options screen, gate warps)
 - [ ] Objective layer: let the LLM query what it has achieved (badges, key items, story flags) and what it still needs to do next
 - [ ] Memory layer for long-horizon play
 - [ ] Tests

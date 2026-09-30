@@ -234,7 +234,6 @@ def goto(
             goal=goal,
             blocked=lambda n: n in npcs,
         )
-        print(path)
         if path is None:
             return "no_path"
 
