@@ -151,6 +151,32 @@ class World:
     def _req(a: str | None, b: str | None) -> frozenset[str]:
         return frozenset({"SURF"}) if "water" in (a, b) else frozenset()
 
+    def warp_destinations(self, node: Node) -> set[Node]:
+        """Where the warp on 'node' leads, empty if there is no warp."""
+        return {e.dst for e in self._warps_out.get(node, ())}
+
+    def doorway(self, node: Node) -> list[Node]:
+        """Get the warp tiles of the doorway 'node' belongs to, 'node' first.
+
+        Doorways are two warps wide, adjacent warps to the same map. Not all
+        of them can be taken: a gate exit only warps from the tile in front
+        of its door graphic, the other half is wall.
+        """
+        const, x, y = node
+        dest = {w.dest_map for w in self.maps[const].warps if (w.x, w.y) == (x, y)}
+        if not dest:
+            return [node]
+        tiles = {(w.x, w.y) for w in self.maps[const].warps if w.dest_map in dest}
+        group, todo = [node], [(x, y)]
+        while todo:
+            cx, cy = todo.pop()
+            for dx, dy in DELTA.values():
+                n = (cx + dx, cy + dy)
+                if n in tiles and (const, *n) not in group:
+                    group.append((const, *n))
+                    todo.append(n)
+        return group
+
     def in_bounds(self, node: Node) -> bool:
         """Check if a node is in bounds."""
         const, x, y = node

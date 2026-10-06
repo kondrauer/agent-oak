@@ -13,19 +13,25 @@ from agent_oak.executor.dialogue import (
     select_option,
     talk_to,
 )
+from agent_oak.executor.graph import nearest_node
 from agent_oak.executor.items import buy_item, sell_item, use_item
 from agent_oak.executor.models import TalkResult, World
-from agent_oak.executor.navigation import goto
+from agent_oak.executor.navigation import _get_current_node, goto
+from agent_oak.executor.options import set_options
 from agent_oak.memory.models import (
     BagItems,
+    BattleAnimation,
     BattleState,
+    BattleStyle,
     BattleTurn,
     Button,
     DialogueResult,
+    GameOptions,
     MapObjects,
     ObtainedBadges,
     PlayerLocation,
     Pokemon,
+    TextSpeed,
     TextState,
 )
 from agent_oak.memory.read import (
@@ -34,6 +40,7 @@ from agent_oak.memory.read import (
     read_battle_state,
     read_location,
     read_map_objects,
+    read_options,
     read_party,
     read_text_state,
 )
@@ -205,45 +212,70 @@ def build_server(
 
         Args:
             map_const: Target map constant, e.g. OAKS_LAB (see find_maps).
-            x: Target x in steps. Omit x and y to go to the map's first warp.
-            y: Target y in steps. Omit x and y to go to the map's first warp.
+            x: Target x in steps. Omit x and y to just enter the map, by the
+                closest warp or map edge.
+            y: Target y in steps, see x.
         Returns:
             Whether the goal was reached, the goal, where the player ended up
-                and 'status': "reached", "in_battle", "dialogue_open",
+                and 'status': "reached" (a warp goal counts as reached when
+                it warped the player), "in_battle", "dialogue_open",
                 "no_path" (goal unreachable from here) or "gave_up" (kept
                 getting blocked, e.g. by moving NPCs).
         """
         target = world.maps.get(map_const)
         if target is None or map_const == "LAST_MAP":
             return {"reached": False, "error": f"Unknown map {map_const}"}
-
-        if x is None and y is None:
-            if not target.warps:
-                return {
-                    "reached": False,
-                    "error": f"{map_const} has no warps, pass x and y",
-                }
-            x, y = target.warps[0].x, target.warps[0].y
-        elif x is None or y is None:
+        if (x is None) != (y is None):
             return {"reached": False, "error": "Pass both x and y, or neither"}
 
-        goal = (map_const, x, y)
-        # some warps sit on solid tiles, they are still reachable through
-        # the warp edge that lands on them
-        is_warp = any((w.x, w.y) == (x, y) for w in target.warps)
-        if not is_warp and world.terrain(node=goal) is None:
-            return {
-                "reached": False,
-                "error": f"{goal} is out of bounds or not walkable",
-            }
-
+        enter_only = x is None
         with running(pyboy=pyboy, mem_lock=mem_lock):
+            start = _get_current_node(
+                pyboy=pyboy,
+                syms=symbols,
+                maps_by_id=maps_by_id,
+            )
+            if x is None or y is None:
+                if start[0] == map_const:
+                    return {
+                        "reached": True,
+                        "status": "reached",
+                        "note": f"Already on {map_const}, pass x and y to "
+                        "walk somewhere on it",
+                        "location": {"map": start[0], "x": start[1], "y": start[2]},
+                    }
+                # the first tile of the map on the way there, the warp or
+                # map edge the player enters it by
+                entry = nearest_node(
+                    world=world,
+                    start=start,
+                    is_goal=lambda n: n[0] == map_const,
+                )
+                if entry is None:
+                    return {
+                        "reached": False,
+                        "status": "no_path",
+                        "error": f"No path to {map_const}",
+                    }
+                _, x, y = entry
+
+            goal = (map_const, x, y)
+            # some warps sit on solid tiles, they are still reachable through
+            # the warp edge that lands on them
+            is_warp = any((w.x, w.y) == (x, y) for w in target.warps)
+            if not is_warp and world.terrain(node=goal) is None:
+                return {
+                    "reached": False,
+                    "error": f"{goal} is out of bounds or not walkable",
+                }
+
             status = goto(
                 pyboy=pyboy,
                 syms=symbols,
                 maps_by_id=maps_by_id,
                 world=world,
                 goal=goal,
+                any_tile=enter_only,
             )
             loc = read_location(
                 pyboy=pyboy,
@@ -413,7 +445,11 @@ def build_server(
             )
 
     @mcp.tool()
-    def buy_item_tool(item: str, quantity: int = 1) -> DialogueResult:
+    def buy_item_tool(
+        item: str,
+        quantity: int = 1,
+        close: bool = False,
+    ) -> DialogueResult:
         """Buy an item at a mart, after talking to the clerk (talk_to_tool).
 
         Works from the clerk's BUY / SELL / QUIT menu or an open list.
@@ -421,10 +457,11 @@ def build_server(
         Args:
             item: Item name as listed by the clerk, e.g. "POKE BALL".
             quantity: How many to buy.
+            close: Leave the mart menus afterwards (CANCEL, then QUIT).
         Returns:
             The clerk's answer and the menu after it: the buy list again to
-                buy more (pick CANCEL, then QUIT with select_option_tool to
-                leave), or BUY / SELL / QUIT when the money was not enough.
+                buy more, or BUY / SELL / QUIT when the money was not
+                enough. With close, the dialogue up to the clerk's goodbye.
         """
         with running(pyboy=pyboy, mem_lock=mem_lock):
             return buy_item(
@@ -432,15 +469,21 @@ def build_server(
                 syms=symbols,
                 item=item,
                 quantity=quantity,
+                close=close,
             )
 
     @mcp.tool()
-    def sell_item_tool(item: str, quantity: int = 1) -> DialogueResult:
+    def sell_item_tool(
+        item: str,
+        quantity: int = 1,
+        close: bool = False,
+    ) -> DialogueResult:
         """Sell an item from the bag at a mart, after talking to the clerk.
 
         Args:
             item: Item name as in get_bag, e.g. "ANTIDOTE".
             quantity: How many to sell, capped at the number in the bag.
+            close: Leave the mart menus afterwards (CANCEL, then QUIT).
         Returns:
             The clerk's answer and the menu after it.
         """
@@ -450,6 +493,48 @@ def build_server(
                 syms=symbols,
                 item=item,
                 quantity=quantity,
+                close=close,
+            )
+
+    @mcp.tool()
+    def get_options() -> GameOptions:
+        """Get the game settings: text speed, battle animation and style.
+
+        Returns:
+            The settings as the OPTION screen shows them.
+        """
+        with mem_lock:
+            return read_options(
+                pyboy=pyboy,
+                syms=symbols,
+            )
+
+    @mcp.tool()
+    def set_options_tool(
+        text_speed: TextSpeed | None = "FAST",
+        battle_animation: BattleAnimation | None = "OFF",
+        battle_style: BattleStyle | None = "SET",
+    ) -> GameOptions:
+        """Change the game settings on the OPTION screen.
+
+        Opens the screen from the title menu, the start menu or the
+        overworld (not in battle), sets the values and closes it again. The
+        defaults make the game fastest to play.
+
+        Args:
+            text_speed: FAST, MEDIUM or SLOW, None keeps the current value.
+            battle_animation: ON or OFF, None keeps the current value.
+            battle_style: SHIFT or SET, None keeps the current value.
+        Returns:
+            The settings after the change.
+        """
+        with running(pyboy=pyboy, mem_lock=mem_lock):
+            return set_options(
+                pyboy=pyboy,
+                syms=symbols,
+                text_speed=text_speed,
+                battle_animation=battle_animation,
+                battle_style=battle_style,
             )
 
     @mcp.tool()

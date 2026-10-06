@@ -3,13 +3,14 @@
 from pyboy import PyBoy
 
 from agent_oak.executor.graph import shortest_path
-from agent_oak.executor.models import Edge, GotoStatus, Node, World
+from agent_oak.executor.models import DELTA, Edge, GotoStatus, Node, World
 from agent_oak.memory.models import Button
 from agent_oak.memory.read import (
     read_in_battle,
     read_is_dialogue_open,
     read_location,
     read_npcs,
+    read_player_facing,
 )
 from agent_oak.parser.models import Direction, GameMap
 
@@ -136,10 +137,35 @@ def _edge_button(
     return None
 
 
+def _door_button(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+    maps_by_id: dict[int, GameMap],
+    world: World,
+) -> Button | None:
+    """Get the button that pushes into the door the player stands on.
+
+    Doors you just came out of only warp when walked against, towards the
+    building: a solid tile next to the player, preferably the one faced.
+    """
+    node = _get_current_node(pyboy=pyboy, syms=syms, maps_by_id=maps_by_id)
+    walls = [
+        d
+        for d, (dx, dy) in DELTA.items()
+        if world.in_bounds((node[0], node[1] + dx, node[2] + dy))
+        and world.terrain(node=(node[0], node[1] + dx, node[2] + dy)) is None
+    ]
+    facing = read_player_facing(pyboy=pyboy, syms=syms)
+    if facing in walls:
+        return BUTTON_FOR[facing]
+    return BUTTON_FOR[walls[0]] if walls else None
+
+
 def _execute_step(
     pyboy: PyBoy,
     syms: dict[str, int],
     maps_by_id: dict[int, GameMap],
+    world: World,
     step: Edge,
     last_button: Button | None,
 ) -> bool:
@@ -164,6 +190,12 @@ def _execute_step(
                     maps_by_id=maps_by_id,
                 )
                 or last_button
+                or _door_button(
+                    pyboy=pyboy,
+                    syms=syms,
+                    maps_by_id=maps_by_id,
+                    world=world,
+                )
             )
             if button is None:
                 return False
@@ -204,6 +236,7 @@ def goto(
     world: World,
     goal: Node,
     max_replans: int = 10,
+    any_tile: bool = False,
 ) -> GotoStatus:
     """Go to a waypoint.
 
@@ -212,9 +245,32 @@ def goto(
     (NPC in the way, ...). Stops early when a battle or a text box
     interrupts the walk, the caller has to deal with it and call again.
 
+    A goal on a warp tile is reached when the player gets warped by it:
+    door and gate exits warp as soon as they are stepped on, so the player
+    never stands on them. Any tile of the goal's doorway will do, if one
+    half of it can't be entered the other half is tried.
+
+    With 'any_tile' every tile of the goal's map counts, for just entering
+    a map: some entrances walk the player off the arrival tile by
+    themselves (gates).
+
     Returns:
         "reached" when the player ended up on 'goal', otherwise why not.
     """
+    targets = world.doorway(node=goal)
+    warped_to = set().union(*(world.warp_destinations(node=t) for t in targets))
+    failed: set[Node] = set()
+    # standing next to the exit on the other side does not count, the
+    # player has to go through it
+    been_on_map = False
+
+    def arrived(node: Node) -> bool:
+        return (
+            node in targets
+            or (node in warped_to and been_on_map)
+            or (any_tile and node[0] == goal[0])
+        )
+
     for _ in range(max_replans + 1):
         node = _get_settled_node(
             pyboy=pyboy,
@@ -222,18 +278,23 @@ def goto(
             maps_by_id=maps_by_id,
             world=world,
         )
-        if node == goal:
+        if arrived(node):
             return "reached"
+        been_on_map = been_on_map or node[0] == goal[0]
         if (reason := _interruption(pyboy=pyboy, syms=syms)) is not None:
             return reason
 
         npcs = {(node[0], n.x, n.y) for n in read_npcs(pyboy=pyboy, syms=syms)}
-        path = shortest_path(
-            world=world,
-            start=node,
-            goal=goal,
-            blocked=lambda n: n in npcs,
-        )
+        path: list[Edge] | None = None
+        for target in [t for t in targets if t not in failed] or targets:
+            candidate = shortest_path(
+                world=world,
+                start=node,
+                goal=target,
+                blocked=lambda n: n in npcs,
+            )
+            if candidate is not None and (path is None or len(candidate) < len(path)):
+                path = candidate
         if path is None:
             return "no_path"
 
@@ -243,9 +304,13 @@ def goto(
                 pyboy=pyboy,
                 syms=syms,
                 maps_by_id=maps_by_id,
+                world=world,
                 step=step,
                 last_button=last_button,
             ):
+                # warped by it is caught above, otherwise try another tile
+                if step.dst in targets:
+                    failed.add(step.dst)
                 break
             if step.direction is not None:
                 last_button = BUTTON_FOR[step.direction]
@@ -256,6 +321,6 @@ def goto(
         maps_by_id=maps_by_id,
         world=world,
     )
-    if node == goal:
+    if arrived(node):
         return "reached"
     return _interruption(pyboy=pyboy, syms=syms) or "gave_up"

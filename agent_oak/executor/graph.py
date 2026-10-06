@@ -154,6 +154,43 @@ def shortest_path(
     return None
 
 
+def nearest_node(
+    world: World,
+    start: Node,
+    is_goal: Callable[[Node], bool],
+    abilities: Iterable[str] = (),
+) -> Node | None:
+    """Find the closest node that satisfies 'is_goal', by path cost.
+
+    Dijkstra over the same edges as shortest_path, for goals that are a
+    whole region (any tile of a map) instead of a single tile.
+    """
+    have = frozenset(abilities)
+    seen: set[Node] = set()
+    best: dict[Node, float] = {start: 0.0}
+    pq: list[tuple[float, int, Node]] = [(0.0, 0, start)]
+    tick = 0
+
+    while pq:
+        cost, _, cur = heapq.heappop(pq)
+        if is_goal(cur):
+            return cur
+        if cur in seen:
+            continue
+        seen.add(cur)
+
+        for e in world.neighbors(node=cur):
+            if e.requires > have:
+                continue
+            g = cost + e.cost
+            if g < best.get(e.dst, float("inf")):
+                best[e.dst] = g
+                tick += 1
+                heapq.heappush(pq, (g, tick, e.dst))
+
+    return None
+
+
 if __name__ == "__main__":
     maps_by_str, _ = parse_maps()
     tilesets_by_str, _ = parse_tilesets()

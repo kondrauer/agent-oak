@@ -148,11 +148,12 @@ class MapInfo(GameMapConstant):
 class GameMap(MapInfo):
     """Game Map model."""
 
-    blocks: bytes
+    # raw block ids, unreadable in tool output (get_map renders them)
+    blocks: bytes = Field(exclude=True)
 
     def info(self) -> MapInfo:
         """Strip the block data."""
-        return MapInfo.model_validate(self.model_dump(exclude={"blocks"}))
+        return MapInfo.model_validate(self.model_dump())
 
     @property
     def step_width(self) -> int:

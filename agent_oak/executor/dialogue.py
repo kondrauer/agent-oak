@@ -29,6 +29,9 @@ PAGE_STABLE_FRAMES = 40
 # text boxes can take a moment to show up after talking to someone
 BOX_CLOSED_FRAMES = 60
 FACE_TIMEOUT_FRAMES = 20
+# box borders and cursors inside the text box rows belong to a menu drawn
+# over it, not to a page of text
+MENU_GLYPHS = ("│", "▶", "▷")
 
 
 def _append_page(
@@ -45,6 +48,19 @@ def _append_page(
             lines.extend(page[k:])
             return
     lines.extend(page)
+
+
+def _is_page(text: list[str]) -> bool:
+    """Whether the text box lines are a page of text, not part of a menu."""
+    return bool(text) and not any(g in line for line in text for g in MENU_GLYPHS)
+
+
+def _continues(
+    old: list[str],
+    new: list[str],
+) -> bool:
+    """Whether 'new' is 'old' with more letters printed."""
+    return "\n".join(new).startswith("\n".join(old))
 
 
 def join_texts(texts: list[str]) -> str:
@@ -108,6 +124,7 @@ def advance_dialogue(
     pyboy: PyBoy,
     syms: dict[str, int],
     timeout_frames: int = 1800,
+    already_read: list[str] | None = None,
 ) -> DialogueResult:
     """Read and click through text until it ends or a choice is needed.
 
@@ -119,11 +136,14 @@ def advance_dialogue(
         pyboy: The PyBoy instance to read memory from and send input to.
         syms: A dictionary of constant names to their values.
         timeout_frames: The maximum number of frames to run.
+        already_read: Page still on screen from before (under the menu that
+            was answered), not read again when it is replaced.
     Returns:
         Every line shown, and the menu if one is waiting for a choice.
     """
     lines: list[str] = []
     last_text: list[str] | None = None
+    last_dex = False
     dex_header: list[str] | None = None
     stable = closed = 0
     frame = 0
@@ -167,8 +187,22 @@ def advance_dialogue(
         if closed >= BOX_CLOSED_FRAMES and not read_in_battle(pyboy=pyboy, syms=syms):
             return DialogueResult(status="done", text="\n".join(lines))
 
+        # battle text pages advance by themselves, a short one (enemy move
+        # that misses, ...) can be gone before it counts as stable, keep it
+        # once something else replaces it
+        if (
+            last_text is not None
+            and not last_dex
+            and _is_page(last_text)
+            and last_text != already_read
+            and not _continues(last_text, state.text)
+        ):
+            _append_page(
+                lines,
+                last_text,
+            )
         stable = stable + 1 if state.text == last_text else 0
-        last_text = state.text
+        last_text, last_dex = state.text, state.dex_entry
 
         if state.text and (state.waiting_for_a or stable >= PAGE_STABLE_FRAMES):
             page = state.text
@@ -216,12 +250,15 @@ def select_option(
     Returns:
         What followed the choice, see advance_dialogue.
     """
-    menu = read_text_state(
+    before = read_text_state(
         pyboy=pyboy,
         syms=syms,
-    ).menu
+    )
+    menu = before.menu
     if menu is None:
         raise ValueError("No menu is open")
+    if menu.kind == "options":
+        raise ValueError("The OPTION screen has no choices, use set_options")
     if not 0 <= index < len(menu.options):
         raise ValueError(f"Index {index} out of range for options {menu.options}")
 
@@ -232,20 +269,46 @@ def select_option(
         menu=menu,
         index=index,
     )
+    chosen = menu.model_copy(update={"selected": index})
     for _ in range(MENU_PRESS_TRIES):
-        _press(
-            pyboy=pyboy,
-            button=Button.A,
-            frames=MENU_SETTLE_FRAMES,
-        )
-        if read_text_state(
+        pyboy.button(Button.A.value, delay=PRESS_FRAMES)
+        # hand over as soon as the menu reacts, text printed after the
+        # choice (the enemy's turn, ...) must not run by unread
+        if _tick_until_changed(
             pyboy=pyboy,
             syms=syms,
-        ).menu != menu.model_copy(update={"selected": index}):
+            menu=chosen,
+            frames=MENU_SETTLE_FRAMES,
+        ):
             break
     else:
         raise RuntimeError(f"Option {index} was not accepted")
-    return advance_dialogue(pyboy=pyboy, syms=syms, timeout_frames=timeout_frames)
+    return advance_dialogue(
+        pyboy=pyboy,
+        syms=syms,
+        timeout_frames=timeout_frames,
+        already_read=before.text,
+    )
+
+
+def _tick_until_changed(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+    menu: Menu,
+    frames: int,
+) -> bool:
+    """Tick until the screen no longer shows 'menu', at most 'frames' frames.
+
+    Ticks at least until the button press is released again.
+    """
+    for frame in range(1, frames + 1):
+        pyboy.tick()
+        if (
+            frame >= PRESS_FRAMES
+            and read_text_state(pyboy=pyboy, syms=syms).menu != menu
+        ):
+            return True
+    return False
 
 
 def choose_quantity(
@@ -267,10 +330,11 @@ def choose_quantity(
     Returns:
         What followed the choice, see advance_dialogue.
     """
-    prompt = read_text_state(
+    before = read_text_state(
         pyboy=pyboy,
         syms=syms,
-    ).quantity
+    )
+    prompt = before.quantity
     if prompt is None:
         raise ValueError("No quantity prompt is open")
     if not 1 <= quantity <= prompt.max:
@@ -305,7 +369,12 @@ def choose_quantity(
             break
     else:
         raise RuntimeError("Quantity was not accepted")
-    return advance_dialogue(pyboy=pyboy, syms=syms, timeout_frames=timeout_frames)
+    return advance_dialogue(
+        pyboy=pyboy,
+        syms=syms,
+        timeout_frames=timeout_frames,
+        already_read=before.text,
+    )
 
 
 def _move_cursor(
