@@ -16,7 +16,14 @@ from agent_oak.objectives.hints import MAX_TIER, hint_text
 from agent_oak.objectives.milestones import Milestone
 from agent_oak.objectives.progress import HintPolicy, Position, Progress
 from agent_oak.objectives.ram import Ram
-from agent_oak.objectives.routing import Route, RouteTarget, plan_route, route_context
+from agent_oak.objectives.routing import (
+    Route,
+    RouteTarget,
+    install_blockers,
+    plan_route,
+    route_context,
+    sync_opened,
+)
 from agent_oak.parser.models import GameMap
 from agent_oak.pyboy_mcp.emulator import running
 
@@ -174,6 +181,7 @@ class ObjectiveTracker:
         self._lock = Lock()
         if state_path is not None and state_path.exists():
             self._load(json.loads(state_path.read_text()))
+        install_blockers(world=world, objectives=evaluator.objectives)
 
     def _load(self, data: dict[str, Any]) -> None:
         if data.get("version") != STATE_VERSION:
@@ -207,6 +215,8 @@ class ObjectiveTracker:
             pyboy=self.pyboy, syms=self.syms, mem_lock=self.mem_lock
         )
         state = self.evaluator.evaluate(ram)
+        # goto walks through scripted doors and barriers once they're open
+        sync_opened(world=self.world, objectives=self.evaluator.objectives, ram=ram)
         frontier = self.evaluator.frontier(state)
         goal = primary(frontier)
         goal_id = goal.id if goal else None

@@ -132,3 +132,21 @@ def test_primary_after_brock(
     assert not state["BEAT_MT_MOON_SUPER_NERD"]
     assert [m.id for m in frontier] == ["BEAT_MT_MOON_SUPER_NERD"]
     assert evaluator.capabilities(ram_after_brock) == set()
+
+
+def test_story_plays_through(constants: dict[str, Any], maps: dict[str, GameMap]):
+    """Doing the primary goal over and over reaches every milestone in order."""
+    objectives = load_objectives(maps=maps)
+    evaluator = Evaluator(objectives=objectives, num_events=constants["num_events"])
+    state = {m.id: False for m in objectives.milestones}
+    order = []
+    while (goal := primary(evaluator.frontier(state))) is not None:
+        state[goal.id] = True
+        order.append(goal.id)
+
+    assert len(order) == len(objectives.milestones)
+    assert order[:3] == ["MEET_OAK", "GET_STARTER", "BATTLE_RIVAL_LAB"]
+    assert order[-1] == "BEAT_CHAMPION"
+    gyms = ["BEAT_BROCK", "BEAT_MISTY", "BEAT_LT_SURGE", "BEAT_ERIKA"]
+    gyms += ["BEAT_KOGA", "BEAT_SABRINA", "BEAT_BLAINE", "BEAT_GIOVANNI"]
+    assert sorted(gyms, key=order.index) == gyms

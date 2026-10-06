@@ -9,15 +9,22 @@ from agent_oak.executor.models import Node, World
 from agent_oak.objectives.hints import hint_text
 from agent_oak.objectives.milestones import Objectives, load_objectives
 from agent_oak.objectives.ram import Ram
-from agent_oak.objectives.routing import Route, plan_route, route_context
+from agent_oak.objectives.routing import (
+    Route,
+    install_blockers,
+    plan_route,
+    route_context,
+)
 from agent_oak.parser.maps import parse_tilesets
 from agent_oak.parser.models import GameMap
 
 
 @pytest.fixture(scope="module")
 def world(maps: dict[str, GameMap]) -> World:
-    """Build the world of the parsed maps."""
-    return World(maps=maps, tilesets=parse_tilesets()[0])
+    """Build the world of the parsed maps, with the openable blocker tiles."""
+    world = World(maps=maps, tilesets=parse_tilesets()[0])
+    install_blockers(world=world, objectives=load_objectives(maps=maps))
+    return world
 
 
 @pytest.fixture(scope="module")
@@ -38,9 +45,10 @@ def ram(constants: dict[str, Any], make_ram: MakeRam):
         hide: tuple[str, ...] = (),
         show: tuple[str, ...] = (),
         bag: dict[str, int] | None = None,
+        badges: tuple[str, ...] = (),
     ) -> Ram:
         hidden = tuple(t for t in initially_hidden if t not in show) + hide
-        return make_ram(events=events, hidden=hidden, bag=bag)
+        return make_ram(events=events, hidden=hidden, bag=bag, badges=badges)
 
     return ram
 
@@ -228,3 +236,57 @@ def test_sabrina_after_silph_co(world, objectives, maps, ram) -> None:
 
     assert _route(*args, ram()).blocked_by == ["SAFFRON_GYM_ROCKET"]
     assert _route(*args, ram(hide=rockets)).status == "route"
+
+
+SEVEN_BADGES = ("BOULDER", "CASCADE", "THUNDER", "RAINBOW", "SOUL", "MARSH", "VOLCANO")
+FIELD_MOVES = ("CUT", "SURF", "STRENGTH")
+
+
+def test_gyms_of_segment_4(world, objectives, maps, ram) -> None:
+    """Cinnabar Gym needs the Secret Key, Viridian Gym seven badges."""
+    blaine = (world, objectives, maps, "BEAT_BLAINE", "CINNABAR_ISLAND")
+    giovanni = (world, objectives, maps, "BEAT_GIOVANNI", "VIRIDIAN_CITY")
+
+    assert _route(*blaine, ram()).blocked_by == ["CINNABAR_GYM_DOOR"]
+    assert _route(*blaine, ram(bag={"SECRET_KEY": 1})).status == "route"
+    dex = {"events": ("EVENT_GOT_POKEDEX",), "hide": ("TOGGLE_LYING_OLD_MAN",)}
+    six = ram(badges=SEVEN_BADGES[:6], **dex)
+    assert _route(*giovanni, six).blocked_by == ["VIRIDIAN_GYM_DOOR"]
+    assert _route(*giovanni, ram(badges=SEVEN_BADGES, **dex)).status == "route"
+
+
+def test_route_23_wants_every_badge(world, objectives, maps, ram) -> None:
+    """The guard nearest Victory Road checks the Earth Badge."""
+    args = (world, objectives, maps, "REACH_INDIGO_PLATEAU", "VIRIDIAN_CITY")
+
+    seven = _route(*args, ram(badges=SEVEN_BADGES), FIELD_MOVES)
+    eight = _route(*args, ram(badges=SEVEN_BADGES + ("EARTH",)), FIELD_MOVES)
+
+    assert seven.blocked_by == ["ROUTE_23_EARTH_GUARD"]
+    assert eight.status == "route" and "VICTORY_ROAD_1F" in eight.maps
+
+
+def test_elite_four_doors(world, objectives, maps, ram) -> None:
+    """Each room's exit opens with its trainer, Lorelei's from closed data."""
+    lobby = maps["INDIGO_PLATEAU_LOBBY"]
+    start = ("INDIGO_PLATEAU_LOBBY", lobby.warps[0].x + 1, lobby.warps[0].y - 1)
+    champion = objectives.by_id()["BEAT_CHAMPION"]
+    beaten = (
+        "EVENT_BEAT_LORELEIS_ROOM_TRAINER_0",
+        "EVENT_BEAT_BRUNOS_ROOM_TRAINER_0",
+        "EVENT_BEAT_AGATHAS_ROOM_TRAINER_0",
+    )
+
+    def route(events: tuple[str, ...]) -> Route:
+        return plan_route(
+            world=world,
+            milestone=champion,
+            start=start,
+            context=route_context(
+                objectives=objectives, maps=maps, ram=ram(events=events)
+            ),
+        )
+
+    assert route(()).blocked_by == ["AGATHA_EXIT", "BRUNO_EXIT", "LORELEI_EXIT"]
+    assert route(beaten[:1]).blocked_by == ["AGATHA_EXIT", "BRUNO_EXIT"]
+    assert route(beaten).status == "route"

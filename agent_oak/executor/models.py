@@ -98,6 +98,11 @@ class World:
         # (x, y) of every warp tile leading into a map, keyed by that map
         self._warp_sources_into: dict[str, set[tuple[int, int]]] = {}
         self._conns: dict[str, dict[Direction, Connection]] = {}
+        self.openable: dict[Node, str] = {}
+        """Tiles solid in the map data that a script opens, by the token
+        (story blocker id) that opens them, e.g. Victory Road's barriers."""
+        self.opened: set[str] = set()
+        """Tokens of openable tiles that are open right now."""
         self._index()
 
     def _index(self) -> None:
@@ -167,6 +172,13 @@ class World:
         if b == "cut":
             return frozenset({"CUT"})
         return frozenset({"SURF"}) if "water" in (a, b) else frozenset()
+
+    def _open_req(self, node: Node) -> frozenset[str]:
+        """Get the token an openable tile needs while it is closed."""
+        token = self.openable.get(node)
+        if token is None or token in self.opened:
+            return frozenset()
+        return frozenset({token})
 
     def warp_destinations(self, node: Node) -> set[Node]:
         """Where the warp on 'node' leads, empty if there is no warp."""
@@ -238,6 +250,8 @@ class World:
         """'land', 'water', 'cut' (a tree Cut removes) or None if solid."""
         if not self.in_bounds(node):
             return None
+        if node in self.openable:
+            return "land"
 
         ts = self.tilesets[self.maps[node[0]].tileset]
         t = self.collision_tile(node=node)
@@ -308,7 +322,8 @@ class World:
                             dst=dst,
                             kind="connection",
                             direction=d,
-                            requires=self._req(here, self.terrain(node=dst)),
+                            requires=self._req(here, self.terrain(node=dst))
+                            | self._open_req(dst),
                         )
                 continue
 
@@ -344,7 +359,7 @@ class World:
                 dst=dst,
                 kind="walk",
                 direction=d,
-                requires=self._req(here, there),
+                requires=self._req(here, there) | self._open_req(dst),
             )
 
         yield from self._warps_out.get(node, ())

@@ -23,7 +23,17 @@ MILESTONE_KEYS = {
     "tags",
 }
 READINESS_KEYS = {"min_level", "ace", "ace_level"}
-BLOCKER_KEYS = {"id", "map", "tiles", "npcs", "until", "blurb", "opened_by"}
+BLOCKER_KEYS = {
+    "id",
+    "map",
+    "tiles",
+    "area",
+    "npcs",
+    "until",
+    "blurb",
+    "opened_by",
+    "solid",
+}
 
 
 @dataclass(frozen=True)
@@ -77,6 +87,8 @@ class Blocker:
     blurb: str
     opened_by: str | None = None
     """The milestone whose completion opens it, for routing costs and hints."""
+    solid: bool = False
+    """The map data has the tiles closed (a script opens them), not open."""
 
 
 @dataclass(frozen=True)
@@ -158,12 +170,27 @@ def _parse_blocker(
             errors.append(f"{where}.tiles: {tile!r} is not an [x, y] on the map")
             continue
         tiles.append((tile[0], tile[1]))
+    area = raw.get("area")
+    if area is not None:
+        if (
+            not isinstance(area, list)
+            or len(area) != 4
+            or not all(isinstance(v, int) for v in area)
+        ):
+            errors.append(f"{where}.area: expected [x0, y0, x1, y1], got {area!r}")
+        else:
+            x0, y0, x1, y1 = area
+            tiles.extend(
+                (x, y)
+                for y in range(max(y0, 0), min(y1, game_map.step_height - 1) + 1)
+                for x in range(max(x0, 0), min(x1, game_map.step_width - 1) + 1)
+            )
     for name in raw.get("npcs") or []:
         npc = _find_npc(game_map, name, f"{where}.npcs", errors)
         if npc is not None:
             tiles.append((npc.x, npc.y))
     if not tiles:
-        errors.append(f"{where}: needs tiles or npcs")
+        errors.append(f"{where}: needs tiles, area or npcs")
 
     return Blocker(
         id=raw["id"],
@@ -172,6 +199,7 @@ def _parse_blocker(
         until=parser.parse(raw.get("until"), f"{where}.until"),
         blurb=str(raw.get("blurb", "")),
         opened_by=raw.get("opened_by"),
+        solid=bool(raw.get("solid", False)),
     )
 
 

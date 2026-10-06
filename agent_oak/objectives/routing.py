@@ -40,6 +40,8 @@ class RouteContext:
     """Tokens needed to enter a tile: STRENGTH for boulders, blocker ids."""
     reasons: dict[str, str] = field(default_factory=dict)
     """Why a token blocks, for capabilities and active blockers."""
+    opened: frozenset[str] = frozenset()
+    """Ids of solid blockers that are open now, their tiles are passable."""
     distance: dict[str, int] = field(default_factory=dict)
     """Milestones left until a token opens, unknown ones count as all."""
     default_distance: int = 1
@@ -47,6 +49,26 @@ class RouteContext:
     def gate(self, node: Node) -> frozenset[str]:
         """Tokens needed to enter 'node'."""
         return self.gates.get(node, frozenset())
+
+
+def install_blockers(world: World, objectives: Objectives) -> None:
+    """Make the tiles of solid blockers openable in 'world'.
+
+    The map data has them closed (Victory Road's barriers, Lorelei's exit),
+    world edges onto them need the blocker's id until sync_opened says the
+    game opened them.
+    """
+    for blocker in objectives.blockers:
+        if blocker.solid:
+            for x, y in blocker.tiles:
+                world.openable[(blocker.map, x, y)] = blocker.id
+
+
+def sync_opened(world: World, objectives: Objectives, ram: Ram) -> None:
+    """Mark the solid blockers that are open in RAM as open in 'world'."""
+    world.opened = {
+        b.id for b in objectives.blockers if b.solid and b.until.evaluate(ram)
+    }
 
 
 def route_context(
@@ -96,8 +118,10 @@ def route_context(
         + (f" (opens with: {openers[name].label})" if name in openers else "")
         for name, text in OBSTACLES.items()
     }
+    opened: set[str] = set()
     for blocker in objectives.blockers:
         if blocker.until.evaluate(ram):
+            opened.add(blocker.id)
             continue
         opener = by_id.get(blocker.opened_by or "")
         reasons[blocker.id] = blocker.blurb
@@ -114,6 +138,7 @@ def route_context(
         blocked=frozenset(blocked),
         gates={n: frozenset(t) for n, t in gates.items()},
         reasons=reasons,
+        opened=frozenset(opened),
         distance=distance,
         default_distance=len(objectives.milestones) + 1,
     )
@@ -226,7 +251,7 @@ def plan_route(
     map_const = milestone.map
     ctx = context or RouteContext()
     # the route is a plan, it may say to ride an elevator
-    have = frozenset(abilities) | {ELEVATOR}
+    have = frozenset(abilities) | {ELEVATOR} | ctx.opened
 
     def is_goal(node: Node) -> bool:
         return node[0] == map_const if goals is None else node in goals
