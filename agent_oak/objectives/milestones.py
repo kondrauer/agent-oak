@@ -23,7 +23,7 @@ MILESTONE_KEYS = {
     "tags",
 }
 READINESS_KEYS = {"min_level", "ace", "ace_level"}
-BLOCKER_KEYS = {"id", "map", "tiles", "npcs", "until", "blurb"}
+BLOCKER_KEYS = {"id", "map", "tiles", "npcs", "until", "blurb", "opened_by"}
 
 
 @dataclass(frozen=True)
@@ -75,6 +75,8 @@ class Blocker:
     tiles: tuple[tuple[int, int], ...]
     until: Predicate
     blurb: str
+    opened_by: str | None = None
+    """The milestone whose completion opens it, for routing costs and hints."""
 
 
 @dataclass(frozen=True)
@@ -169,6 +171,7 @@ def _parse_blocker(
         tiles=tuple(tiles),
         until=parser.parse(raw.get("until"), f"{where}.until"),
         blurb=str(raw.get("blurb", "")),
+        opened_by=raw.get("opened_by"),
     )
 
 
@@ -331,6 +334,11 @@ def parse_objectives(
         blocker = _parse_blocker(raw, i, parser, maps, errors)
         if blocker is not None:
             blockers.append(blocker)
+    for b in blockers:
+        if b.opened_by is not None and b.opened_by not in seen:
+            errors.append(
+                f"blockers.{b.id}.opened_by: unknown milestone {b.opened_by!r}"
+            )
     ids = [b.id for b in blockers]
     for dup in {b for b in ids if ids.count(b) > 1}:
         errors.append(f"blockers.{dup}: duplicate id")

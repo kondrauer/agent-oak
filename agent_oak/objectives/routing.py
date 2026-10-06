@@ -10,17 +10,18 @@ from agent_oak.executor.dialogue import stand_tiles
 from agent_oak.executor.graph import nearest_path
 from agent_oak.executor.models import ELEVATOR, Edge, Node, World
 from agent_oak.objectives.milestones import Milestone, Objectives
+from agent_oak.objectives.predicates import Capability
 from agent_oak.objectives.ram import Ram
 from agent_oak.parser.models import GameMap
 
 RouteStatus = Literal["route", "here", "blocked", "no_location", "no_path", "disabled"]
 BOULDER_SPRITE = "SPRITE_BOULDER"
 # a step the player can't take yet costs more than any detour, so the path
-# only needs what can't be avoided. Capabilities cost a bit more than story
-# blockers: where both lead on (Cerulean's south: the guard or a cut tree),
-# the story is the way the game intends.
-MISSING_BLOCKER_COST = 10_000.0
-MISSING_CAPABILITY_COST = 12_000.0
+# only needs what can't be avoided, and more the further away the story is
+# from opening it: per milestone still to do up to and including its opener.
+# Where two ways lead on (Lavender: Route 9's tree or Route 12's Snorlax),
+# the one that opens sooner wins.
+MISSING_STEP_COST = 10_000.0
 # what stands in the way when a path needs a capability
 OBSTACLES = {
     "CUT": "a small tree, you need Cut (HM01) and the Cascade Badge",
@@ -39,6 +40,9 @@ class RouteContext:
     """Tokens needed to enter a tile: STRENGTH for boulders, blocker ids."""
     reasons: dict[str, str] = field(default_factory=dict)
     """Why a token blocks, for capabilities and active blockers."""
+    distance: dict[str, int] = field(default_factory=dict)
+    """Milestones left until a token opens, unknown ones count as all."""
+    default_distance: int = 1
 
     def gate(self, node: Node) -> frozenset[str]:
         """Tokens needed to enter 'node'."""
@@ -68,11 +72,38 @@ def route_context(
             else:
                 blocked.add(node)
 
-    reasons = dict(OBSTACLES)
+    by_id = objectives.by_id()
+    done = {m.id: m.done.evaluate(ram) for m in objectives.milestones}
+
+    def left(milestone: str) -> int:
+        """Milestones not done among 'milestone' and its prerequisites."""
+        seen: set[str] = set()
+        todo = [milestone]
+        while todo:
+            mid = todo.pop()
+            if mid not in seen:
+                seen.add(mid)
+                todo.extend(by_id[mid].requires)
+        # at least 1: a token that is missing is never free
+        return max(1, sum(not done[mid] for mid in seen))
+
+    openers = {
+        m.done.name: m for m in objectives.milestones if isinstance(m.done, Capability)
+    }
+    distance = {name: left(m.id) for name, m in openers.items()}
+    reasons = {
+        name: text
+        + (f" (opens with: {openers[name].label})" if name in openers else "")
+        for name, text in OBSTACLES.items()
+    }
     for blocker in objectives.blockers:
         if blocker.until.evaluate(ram):
             continue
+        opener = by_id.get(blocker.opened_by or "")
         reasons[blocker.id] = blocker.blurb
+        if opener is not None:
+            distance[blocker.id] = left(opener.id)
+            reasons[blocker.id] += f" (opens with: {opener.label})"
         for x, y in blocker.tiles:
             node = (blocker.map, x, y)
             # the blocker explains this tile, it opens with it
@@ -83,6 +114,8 @@ def route_context(
         blocked=frozenset(blocked),
         gates={n: frozenset(t) for n, t in gates.items()},
         reasons=reasons,
+        distance=distance,
+        default_distance=len(objectives.milestones) + 1,
     )
 
 
@@ -199,12 +232,9 @@ def plan_route(
         return node[0] == map_const if goals is None else node in goals
 
     def missing_cost(needs: frozenset[str]) -> float:
-        missing = needs - have
-        if not missing:
-            return 0.0
-        if missing & OBSTACLES.keys():
-            return MISSING_CAPABILITY_COST
-        return MISSING_BLOCKER_COST
+        return MISSING_STEP_COST * sum(
+            ctx.distance.get(token, ctx.default_distance) for token in needs - have
+        )
 
     def gate(node: Node) -> frozenset[str]:
         # a blocker on the goal is what the goal is about (the ghost on the

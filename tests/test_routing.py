@@ -197,3 +197,34 @@ def test_pokemon_tower(world, objectives, maps, ram) -> None:
 
     assert ghost.status == "route"
     assert fuji.blocked_by == ["POKEMON_TOWER_GHOST"]
+
+
+def test_snorlax_blocks_the_way_to_fuchsia(world, objectives, maps, ram) -> None:
+    """Fuchsia is behind a Snorlax until the Poke Flute woke one."""
+    args = (world, objectives, maps, "REACH_FUCHSIA", "LAVENDER_TOWN")
+
+    assert _route(*args, ram(), ("CUT",)).blocked_by == ["ROUTE_12_SNORLAX"]
+    awake = ram(hide=("TOGGLE_ROUTE_12_SNORLAX",))
+    assert _route(*args, awake, ("CUT",)).status == "route"
+
+
+def test_silph_co(world, objectives, maps, ram) -> None:
+    """Silph Co opens after Mr. Fuji, Giovanni is behind card key doors."""
+    drink = {"FRESH_WATER": 1}
+    fuji = ("TOGGLE_SAFFRON_CITY_E",)
+    args = (world, objectives, maps, "BEAT_SILPH_GIOVANNI", "SAFFRON_CITY")
+
+    assert "SILPH_CO_ENTRANCE" in _route(*args, ram(bag=drink)).blocked_by
+    no_key = _route(*args, ram(hide=fuji, bag=drink)).blocked_by
+    assert no_key and all(b.startswith("SILPH_CO_") for b in no_key)
+    key = _route(*args, ram(hide=fuji, bag=drink | {"CARD_KEY": 1}))
+    assert key.status == "route"
+
+
+def test_sabrina_after_silph_co(world, objectives, maps, ram) -> None:
+    """A grunt blocks Saffron Gym until Giovanni left Silph Co."""
+    args = (world, objectives, maps, "BEAT_SABRINA", "SAFFRON_CITY")
+    rockets = tuple(f"TOGGLE_SAFFRON_CITY_{i}" for i in "1234567")
+
+    assert _route(*args, ram()).blocked_by == ["SAFFRON_GYM_ROCKET"]
+    assert _route(*args, ram(hide=rockets)).status == "route"

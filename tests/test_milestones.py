@@ -80,3 +80,20 @@ def test_unresolvable_target_fails(document, constants, maps) -> None:
     expected = "BEAT_MISTY.target: npc 'BROCK' matches 0"
     assert any(p.startswith(expected) for p in problems)
     assert "BEAT_BROCK.map: unknown map 'PEWTER_GYMM'" in problems
+
+
+def test_blocker_problems_fail(document, constants, maps) -> None:
+    """Blockers need a known map, resolvable npcs and an existing opener."""
+    doc = deepcopy(document)
+    guard = next(b for b in doc["blockers"] if b["id"] == "CERULEAN_GUARD")
+    guard["opened_by"] = "GET_SS_TIKET"
+    guard["npcs"] = ["GUARD3"]
+
+    problems = _problems(doc, constants, maps)
+
+    assert "blockers.CERULEAN_GUARD.opened_by: unknown milestone 'GET_SS_TIKET'" in (
+        problems
+    )
+    assert any(
+        p.startswith("blockers.CERULEAN_GUARD.npcs: npc 'GUARD3'") for p in problems
+    )
