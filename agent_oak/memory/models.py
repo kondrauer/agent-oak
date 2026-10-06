@@ -30,16 +30,33 @@ class Button(str, Enum):
 class Menu(BaseModel):
     """A menu or prompt waiting for a choice."""
 
-    kind: Literal["menu", "battle_menu", "move_menu", "party_menu", "list_menu"] = (
-        Field(
-            description="battle_menu is the FIGHT / PKMN / ITEM / RUN menu, "
-            "move_menu the move list in battle, party_menu the party list, "
-            "list_menu a scrolling item list (mart, bag) with every entry, "
-            "not just the ones on screen"
-        )
+    kind: Literal[
+        "menu", "battle_menu", "move_menu", "party_menu", "list_menu", "options"
+    ] = Field(
+        description="battle_menu is the FIGHT / PKMN / ITEM / RUN menu, "
+        "move_menu the move list in battle, party_menu the party list, "
+        "list_menu a scrolling item list (mart, bag) with every entry, "
+        "not just the ones on screen, options the OPTION screen with the "
+        "current value of every row (change it with set_options)"
     )
     options: list[str]
     selected: int = Field(description="Index of the option under the cursor")
+
+
+TextSpeed = Literal["FAST", "MEDIUM", "SLOW"]
+BattleAnimation = Literal["ON", "OFF"]
+BattleStyle = Literal["SHIFT", "SET"]
+
+
+class GameOptions(BaseModel):
+    """The settings of the OPTION screen."""
+
+    text_speed: TextSpeed
+    battle_animation: BattleAnimation
+    battle_style: BattleStyle = Field(
+        description="SHIFT offers a switch when the enemy trainer sends out "
+        "the next Pokemon, SET does not"
+    )
 
 
 class Quantity(BaseModel):

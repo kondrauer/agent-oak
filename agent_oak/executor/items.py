@@ -32,6 +32,8 @@ from agent_oak.memory.read import (
 LIST_SUFFIX = re.compile(r" [¥×]\d+$")
 YES = 0
 CLOSE_TRIES = 6
+# buy list -> CANCEL -> BUY / SELL / QUIT -> QUIT
+LEAVE_MART_STEPS = 3
 
 
 def _option_index(
@@ -227,12 +229,39 @@ def use_item(
     return result.model_copy(update={"text": join_texts(texts)})
 
 
+def _leave_mart(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+    result: DialogueResult,
+    texts: list[str],
+) -> DialogueResult:
+    """Back out of the mart list and the clerk's menu, until the goodbye."""
+    for _ in range(LEAVE_MART_STEPS):
+        menu = result.menu
+        if menu is None:
+            break
+        if menu.kind == "list_menu":
+            index = len(menu.options) - 1  # CANCEL
+        elif "QUIT" in menu.options:
+            index = menu.options.index("QUIT")
+        else:
+            break
+        result = select_option(
+            pyboy=pyboy,
+            syms=syms,
+            index=index,
+        )
+        texts.append(result.text)
+    return result
+
+
 def _trade(
     pyboy: PyBoy,
     syms: dict[str, int],
     action: Literal["BUY", "SELL"],
     item: str,
     quantity: int,
+    close: bool = False,
 ) -> DialogueResult:
     """Buy or sell at a mart, starting at BUY / SELL / QUIT or in the list."""
     menu, texts = current_menu(
@@ -288,6 +317,13 @@ def _trade(
             index=YES,
         )
         texts.append(result.text)
+    if close:
+        result = _leave_mart(
+            pyboy=pyboy,
+            syms=syms,
+            result=result,
+            texts=texts,
+        )
     return result.model_copy(update={"text": join_texts(texts)})
 
 
@@ -296,6 +332,7 @@ def buy_item(
     syms: dict[str, int],
     item: str,
     quantity: int = 1,
+    close: bool = False,
 ) -> DialogueResult:
     """Buy an item from the mart clerk.
 
@@ -304,6 +341,7 @@ def buy_item(
         syms: A dictionary of constant names to their values.
         item: Item name, e.g. "POKé BALL" (case and accents are ignored).
         quantity: How many to buy.
+        close: Leave the mart menus afterwards.
     Returns:
         The clerk's answer and the menu after it: the buy list again, or
             BUY / SELL / QUIT when the money was not enough.
@@ -316,6 +354,7 @@ def buy_item(
         action="BUY",
         item=item,
         quantity=quantity,
+        close=close,
     )
 
 
@@ -324,6 +363,7 @@ def sell_item(
     syms: dict[str, int],
     item: str,
     quantity: int = 1,
+    close: bool = False,
 ) -> DialogueResult:
     """Sell an item from the bag to the mart clerk.
 
@@ -332,6 +372,7 @@ def sell_item(
         syms: A dictionary of constant names to their values.
         item: Item name, e.g. "ANTIDOTE" (case and accents are ignored).
         quantity: How many to sell, capped at the number in the bag.
+        close: Leave the mart menus afterwards.
     Returns:
         The clerk's answer and the menu after it.
     """
@@ -343,4 +384,5 @@ def sell_item(
         action="SELL",
         item=item,
         quantity=quantity,
+        close=close,
     )

@@ -6,6 +6,8 @@ data-accuracy problems and small usability gaps.
 
 ## 1. `get_party` returns garbage stats
 
+**Status: fixed** in 70e557f (the stats were read from 0x14–0x17). Verified on the save: Lv15 Squirtle reads 21/28/19/24. `tests/test_read.py` checks it against a real party-struct dump.
+
 **Observed**
 
 | When | attack | defense | speed | special |
@@ -29,6 +31,8 @@ the stats are plausible (for example, Lv6 Squirtle attack ≈ 11–13).
 
 ## 2. `get_battle_state.battle_type` is always `"WILD"`
 
+**Status: fixed** in 70e557f (it was reading `wBattleType`, which is about safari/old man battles). Verified on Route 3: `TRAINER` from the intro on.
+
 **Observed:** it returned `"WILD"` during the rival battle (Blue), the Bug Catchers,
 the Jr. Trainer and Brock.
 
@@ -43,6 +47,8 @@ This also affects `enemy_out`: the `ENEMY_NOT_LOADED` guard only applies to
 `BattleType.TRAINER`, so it never runs.
 
 ## 3. Stale battle state at battle start
+
+**Status: fixed** in 70e557f. Verified: `player_pokemon`/`enemy_pokemon` stay `null` until the mon is sent out. `use_move` etc. go through the same `read_battle_state`.
 
 **Observed:** calling `get_battle_state` right after `goto_map` returned
 `status: in_battle`, before the "Wild X appeared!" text had been advanced, gave:
@@ -59,6 +65,8 @@ contained a partly built Pokémon. It's possible the check isn't applied on ever
 code path, for example the one used by `use_move`/`goto_map` results.
 
 ## 4. Stray "But, it failed!" in move results
+
+**Status: fixed.** "But, it failed!" was real: in Gen 1, an enemy's stat-lowering move (Growl, Tail Whip, String Shot) has a hidden 25% miss chance. The missing part was the short `Enemy X used Y!` page before it. That page advances by itself in under 40 frames, so it was never read. `advance_dialogue` now records a page when another page replaces it, and `select_option` hands over as soon as the menu reacts instead of ticking 20 frames without reading. Reproduced and verified with a Caterpie's String Shot on Route 3.
 
 **Observed:** some `use_move` results started or ended with `But, it failed!` where
 the enemy's turn text should have been, for example:
@@ -77,6 +85,8 @@ Stale tile or text-buffer content is read before the new text is printed.
 
 ## 5. Options screen parsed as one menu option
 
+**Status: fixed.** The screen is reported as `kind: "options"` with the value of each row. New tools `get_options` and `set_options_tool` (defaults to FAST / OFF / SET) work from the title menu, the start menu or the overworld.
+
 **Observed:** selecting `OPTION` on the title menu gave
 `menu: {"kind": "menu", "options": ["MEDIUM SLOW"], "selected": 0}`. The screen
 really has three rows (TEXT SPEED / BATTLE ANIMATION / BATTLE STYLE), each with
@@ -87,6 +97,8 @@ left/right choices. I had to set it with raw `press_button`.
 (text speed, animation, style). An agent will almost always want FAST, OFF and SET.
 
 ## 6. `goto_map` gives up one tile short of gate warps
+
+**Status: fixed.** Gate exits only warp from the tile in front of the door graphic (x=5 here). x=4 is wall, even though pokered defines a warp there too. `goto` now treats both halves of a doorway as the goal and tries the other half when one can't be entered. Getting warped by the goal counts as reached. Without x/y, `goto_map` now just enters the map (any tile of it). On the map you're already on, it returns right away. Standing on a door you just came out of, it now pushes toward the building.
 
 **Observed:**
 ```
@@ -104,6 +116,8 @@ y=1. Passing an explicit target inside `VIRIDIAN_FOREST` worked.
   shouldn't be the goal at all.
 
 ## 7. Small usability gaps
+
+**Status: fixed.** Maps without warps work (the nearest tile of the map). `buy_item_tool`/`sell_item_tool` take `close: true`. `blocks` is left out of all map output.
 
 - `goto_map("ROUTE_1")` without coordinates returns
   `"ROUTE_1 has no warps, pass x and y"`. Maps with no warps could default to the

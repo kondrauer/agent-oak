@@ -16,6 +16,7 @@ from agent_oak.memory.models import (
     BattlePokemon,
     BattleState,
     BattleType,
+    GameOptions,
     Item,
     MapObjects,
     Menu,
@@ -27,6 +28,7 @@ from agent_oak.memory.models import (
     Pokemon,
     PokemonStats,
     Quantity,
+    TextSpeed,
     TextState,
     Warp,
 )
@@ -77,6 +79,19 @@ WY_HIDDEN = 0x90  # hWY value when no textbox/menu window is being drawn
 SPRITE_STRUCT_LEN = 0x10
 ENEMY_NOT_LOADED = 0xFF  # wEnemyMonPartyPos before a trainer sends out
 MAX_SPRITES = 16  # slot 0 is the player
+# OPTION screen: wTopMenuItemY of each row, the label, the cursor x variable
+# and the value at every cursor x. The last row is CANCEL.
+OPTIONS_ROWS = (
+    (3, "TEXT SPEED", "wOptionsTextSpeedCursorX", {1: "FAST", 7: "MEDIUM", 14: "SLOW"}),
+    (8, "BATTLE ANIMATION", "wOptionsBattleAnimCursorX", {1: "ON", 10: "OFF"}),
+    (13, "BATTLE STYLE", "wOptionsBattleStyleCursorX", {1: "SHIFT", 10: "SET"}),
+)
+OPTIONS_CANCEL_Y = 16
+# wOptions: text delay in the low nibble, the flags in the top bits
+TEXT_SPEEDS: dict[int, TextSpeed] = {1: "FAST", 3: "MEDIUM", 5: "SLOW"}
+TEXT_SPEED_MASK = 0x0F
+BATTLE_ANIMATION_OFF_BIT = 7
+BATTLE_STYLE_SET_BIT = 6
 
 SPECIES = by_id(Path("constants/pokemon_constants.asm"))
 MOVES = by_id(Path("constants/move_constants.asm"))
@@ -452,6 +467,53 @@ def _read_quantity(
     )
 
 
+def is_options_screen(tiles: bytes) -> bool:
+    """Whether the OPTION screen is shown."""
+    return all(label in _decode_row(tiles, y - 2) for y, label, _, _ in OPTIONS_ROWS)
+
+
+def _read_options_menu(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> Menu:
+    """Read the OPTION screen, every row with the value its cursor is on.
+
+    Each row keeps its own cursor, so the screen is one option per row with
+    a left / right choice, not a list.
+    """
+    options = [
+        f"{label}: {values.get(pyboy.memory[syms[cursor]], '?')}"
+        for _, label, cursor, values in OPTIONS_ROWS
+    ]
+    rows = [y for y, _, _, _ in OPTIONS_ROWS] + [OPTIONS_CANCEL_Y]
+    row = pyboy.memory[syms["wTopMenuItemY"]]
+    return Menu(
+        kind="options",
+        options=[*options, "CANCEL"],
+        selected=rows.index(row) if row in rows else 0,
+    )
+
+
+def read_options(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> GameOptions:
+    """Read the game settings (text speed, battle animation and style).
+
+    Args:
+        pyboy: The emulator instance to read from.
+        syms: The symbol table mapping names to addresses.
+    Returns:
+        The settings as the OPTION screen shows them.
+    """
+    options = pyboy.memory[syms["wOptions"]]
+    return GameOptions(
+        text_speed=TEXT_SPEEDS.get(options & TEXT_SPEED_MASK, "MEDIUM"),
+        battle_animation="OFF" if options >> BATTLE_ANIMATION_OFF_BIT & 1 else "ON",
+        battle_style="SET" if options >> BATTLE_STYLE_SET_BIT & 1 else "SHIFT",
+    )
+
+
 def _read_menu(
     pyboy: PyBoy,
     syms: dict[str, int],
@@ -469,6 +531,9 @@ def _read_menu(
     if not cursors:
         return None
     x, y = cursors[0]
+
+    if is_options_screen(tiles):
+        return _read_options_menu(pyboy=pyboy, syms=syms)
 
     if x == LIST_CURSOR_X and all(
         _tile(tiles, cx, cy) == t for (cx, cy), t in LIST_BOX_CORNERS.items()
@@ -547,7 +612,10 @@ def read_text_state(
     )
 
 
-def read_player_facing(pyboy: PyBoy, syms: dict[str, int]) -> Direction | None:
+def read_player_facing(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> Direction | None:
     """Read the direction the player is facing."""
     return FACING.get(pyboy.memory[syms["wSpritePlayerStateData1FacingDirection"]])
 
@@ -581,11 +649,20 @@ def read_party(
         original_trainer = bytes(
             pyboy.memory[ots + i * NAME_LEN : ots + (i + 1) * NAME_LEN]
         )
-        party.append(_parse_pokemon(pokemon, nickname, original_trainer))
+        party.append(
+            _parse_pokemon(
+                data=pokemon,
+                nickname=nickname,
+                original_trainer=original_trainer,
+            )
+        )
     return party
 
 
-def read_warps(pyboy: PyBoy, syms: dict[str, int]) -> list[Warp]:
+def read_warps(
+    pyboy: PyBoy,
+    syms: dict[str, int],
+) -> list[Warp]:
     """Read current warps."""
     count = pyboy.memory[syms["wNumberOfWarps"]]
     base = syms["wWarpEntries"]
@@ -815,7 +892,7 @@ def read_battle_state(
         _parse_battle_pokemon(
             pyboy,
             syms,
-            "wBattleMon",
+            prefix="wBattleMon",
             include_nick=True,
         )
         if player_out
@@ -825,7 +902,7 @@ def read_battle_state(
         _parse_battle_pokemon(
             pyboy,
             syms,
-            "wEnemyMon",
+            prefix="wEnemyMon",
             include_nick=False,
         )
         if enemy_out
