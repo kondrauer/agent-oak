@@ -9,6 +9,10 @@ from pyboy.utils import WindowEvent
 from agent_oak.executor.models import Node, World
 from agent_oak.executor.navigation import goto
 from agent_oak.memory.read import read_location
+from agent_oak.objectives.constants import load_constants_json
+from agent_oak.objectives.evaluator import Evaluator
+from agent_oak.objectives.milestones import load_objectives
+from agent_oak.objectives.tracker import ObjectiveTracker
 from agent_oak.parser.maps import parse_maps, parse_tilesets
 from agent_oak.pyboy_mcp.emulator import create_emulator, load_symbols
 from agent_oak.pyboy_mcp.server import build_server
@@ -60,6 +64,18 @@ def main() -> None:
         record_path=args.record,
     )
     mem_lock = Lock()
+    constants = load_constants_json()
+    tracker = ObjectiveTracker(
+        evaluator=Evaluator(
+            objectives=load_objectives(maps=maps_by_name, constants=constants),
+            num_events=constants["num_events"],
+        ),
+        world=world,
+        pyboy=pyboy,
+        syms=syms,
+        maps_by_id=maps_by_id,
+        mem_lock=mem_lock,
+    )
 
     if not args.manual:
         # agent mode: the game only advances inside tool calls
@@ -71,6 +87,7 @@ def main() -> None:
         maps_by_id=maps_by_id,
         world=world,
         mem_lock=mem_lock,
+        tracker=tracker,
     )
 
     Thread(

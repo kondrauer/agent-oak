@@ -45,9 +45,11 @@ from agent_oak.memory.read import (
     read_text_state,
 )
 from agent_oak.memory.render_map import render_current_map
+from agent_oak.objectives.tracker import ObjectiveTracker
 from agent_oak.parser.maps import search_maps
 from agent_oak.parser.models import GameMap, MapInfo
 from agent_oak.pyboy_mcp.emulator import grab_screen_png, running
+from agent_oak.pyboy_mcp.objectives import ACTION_TAG, add_objective_tools
 
 
 def build_server(
@@ -56,6 +58,7 @@ def build_server(
     maps_by_id: dict[int, GameMap],
     world: World,
     mem_lock: Lock,
+    tracker: ObjectiveTracker | None = None,
 ) -> FastMCP:
     """Build the MCP server with the given emulator and symbols.
 
@@ -65,6 +68,8 @@ def build_server(
         maps_by_id: Parsed game maps keyed by map id.
         world: The world model used for pathfinding, its maps are keyed by const.
         mem_lock: A lock to synchronize access to the emulator's memory.
+        tracker: Objective tracker, adds the objective tools and the status
+            line on action tools. None leaves the objective layer out.
     Returns:
         An instance of FastMCP with the defined tools.
     """
@@ -72,7 +77,7 @@ def build_server(
         name="agent-oak",
     )
 
-    @mcp.tool()
+    @mcp.tool(tags={ACTION_TAG})
     def advance_dialogue_tool(timeout_frames: int = 1800) -> DialogueResult:
         """Read and click through text until it ends or a choice is needed.
 
@@ -96,7 +101,7 @@ def build_server(
                 timeout_frames=timeout_frames,
             )
 
-    @mcp.tool()
+    @mcp.tool(tags={ACTION_TAG})
     def select_option_tool(index: int, timeout_frames: int = 1800) -> DialogueResult:
         """Choose an option of the open menu and read what follows.
 
@@ -120,7 +125,7 @@ def build_server(
                 timeout_frames=timeout_frames,
             )
 
-    @mcp.tool()
+    @mcp.tool(tags={ACTION_TAG})
     def choose_quantity_tool(
         quantity: int,
         timeout_frames: int = 1800,
@@ -141,7 +146,7 @@ def build_server(
                 timeout_frames=timeout_frames,
             )
 
-    @mcp.tool()
+    @mcp.tool(tags={ACTION_TAG})
     def talk_to_tool(x: int, y: int) -> TalkResult:
         """Walk next to an NPC, sign or object on the current map and talk to it.
 
@@ -197,7 +202,7 @@ def build_server(
         """
         return [m.info() for m in search_maps(maps_by_name=world.maps, query=query)]
 
-    @mcp.tool()
+    @mcp.tool(tags={ACTION_TAG})
     def goto_map(
         map_const: str,
         x: int | None = None,
@@ -362,7 +367,7 @@ def build_server(
                 syms=symbols,
             )
 
-    @mcp.tool()
+    @mcp.tool(tags={ACTION_TAG})
     def use_move(move: str) -> BattleTurn:
         """Use a move of the active Pokemon, from the battle menu.
 
@@ -382,7 +387,7 @@ def build_server(
                 move=move,
             )
 
-    @mcp.tool()
+    @mcp.tool(tags={ACTION_TAG})
     def switch_pokemon(pokemon: str) -> BattleTurn:
         """Send out another party Pokemon.
 
@@ -401,7 +406,7 @@ def build_server(
                 pokemon=pokemon,
             )
 
-    @mcp.tool()
+    @mcp.tool(tags={ACTION_TAG})
     def run_from_battle() -> BattleTurn:
         """Try to run away, only possible in wild battles.
 
@@ -415,7 +420,7 @@ def build_server(
                 syms=symbols,
             )
 
-    @mcp.tool()
+    @mcp.tool(tags={ACTION_TAG})
     def use_item_tool(
         item: str,
         target: str | None = None,
@@ -444,7 +449,7 @@ def build_server(
                 target=target,
             )
 
-    @mcp.tool()
+    @mcp.tool(tags={ACTION_TAG})
     def buy_item_tool(
         item: str,
         quantity: int = 1,
@@ -472,7 +477,7 @@ def build_server(
                 close=close,
             )
 
-    @mcp.tool()
+    @mcp.tool(tags={ACTION_TAG})
     def sell_item_tool(
         item: str,
         quantity: int = 1,
@@ -509,7 +514,7 @@ def build_server(
                 syms=symbols,
             )
 
-    @mcp.tool()
+    @mcp.tool(tags={ACTION_TAG})
     def set_options_tool(
         text_speed: TextSpeed | None = "FAST",
         battle_animation: BattleAnimation | None = "OFF",
@@ -564,7 +569,7 @@ def build_server(
                 syms=symbols,
             )
 
-    @mcp.tool()
+    @mcp.tool(tags={ACTION_TAG})
     def press_button(
         button: Button,
         hold_frames: int = 10,
@@ -589,7 +594,7 @@ def build_server(
             pyboy.tick(hold_frames + settle_frames)
         return f"Pressed {button.name} for {hold_frames} frames"
 
-    @mcp.tool()
+    @mcp.tool(tags={ACTION_TAG})
     def advance_frames(frames: int) -> str:
         """Advance the emulator by a given number of frames.
 
@@ -625,5 +630,8 @@ def build_server(
                     data=png,
                     format="PNG",
                 )
+
+    if tracker is not None:
+        add_objective_tools(mcp=mcp, tracker=tracker)
 
     return mcp

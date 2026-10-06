@@ -183,14 +183,28 @@ milestones:
     readiness: { ace: STARMIE, ace_level: 21 }
     tags: [main]
 
+  # CeruleanCity.asm. The south and east of Cerulean are only reachable
+  # through the robbed house and its backyard. CERULEANCITY_GUARD2 blocks the
+  # house door until Bill hands out the S.S. Ticket (BillsHouse.asm hides
+  # him), and the backyard is three tiles high with the battle triggered at
+  # (30, 7) and (30, 9) next to the Rocket at (30, 8).
+  - id: BEAT_CERULEAN_ROCKET
+    label: Beat the Rocket thief
+    done: { event: EVENT_BEAT_CERULEAN_ROCKET_THIEF }
+    requires: [GET_SS_TICKET]
+    map: CERULEAN_CITY
+    target: { npc: ROCKET }
+    blurb: "With the police officer gone, walk through the robbed house in Cerulean and beat the Team Rocket thief in its backyard."
+    tags: [main]
+
   # wTownVisitedFlag is set by MarkTownVisitedAndLoadToggleableObjects.
   # Route 5 south of Cerulean, Underground Path, Route 6.
   - id: REACH_VERMILION
     label: Reach Vermilion City
     done: { visited: VERMILION_CITY }
-    requires: [REACH_CERULEAN]
+    requires: [BEAT_CERULEAN_ROCKET]
     map: VERMILION_CITY
-    blurb: "Go south from Cerulean on Route 5, take the Underground Path to Route 6 and on to Vermilion City."
+    blurb: "From the backyard of the robbed house go south out of Cerulean on Route 5, take the Underground Path to Route 6 and on to Vermilion City."
     tags: [main]
 
   # SSAnneCaptainsRoom.asm. The rival on SS_ANNE_2F has no event flag, only
@@ -198,7 +212,7 @@ milestones:
   - id: GET_HM01
     label: Get HM01 Cut
     done: { any: [{ event: EVENT_GOT_HM01 }, { item_anywhere: HM_CUT }] }
-    requires: [GET_SS_TICKET, REACH_VERMILION]
+    requires: [REACH_VERMILION]
     map: SS_ANNE_CAPTAINS_ROOM
     target: { npc: CAPTAIN }
     blurb: "Show the S.S. Ticket at Vermilion's dock, board the S.S. Anne, get past your rival on 2F and rub the seasick captain's back for HM01."

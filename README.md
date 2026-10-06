@@ -38,6 +38,16 @@ LLM client ──MCP (HTTP)──▶ FastMCP server ──▶ PyBoy (Pokémon Re
 | `find_maps` | Search maps by name substring, returns warps, connections, objects and signs |
 | `goto_map` | A* walk into a map or to an `x, y` on any map, replans around NPCs |
 | `get_map` | ASCII render of the current map in step coordinates, to pick `goto_map` targets |
+| `get_objective` | Current story goal and the other open ones, checked against the game's event flags, with readiness notes |
+| `get_hint` | A more specific hint for the current goal: what to do, then where, then the path from here |
+| `route_to_objective` | Plan the path to the current goal's NPC, tile or map, and walk it with `execute` |
+
+Every action tool (the ones that advance the game) ends its response with a status line like
+`[Goal: Get through Mt. Moon @ MT_MOON_B2F | Party Lv 15 | hint 0]`, preceded by
+`✓ Completed: ...` when the action finished a milestone. The milestones are a dependency graph in
+`data/objectives.yaml`, each with a RAM predicate (event flag, badge, item, town visited, ...).
+`data/constants.json` holds the flag and id tables, regenerate it with
+`uv run python scripts/extract_constants.py`.
 
 ## Getting started
 
@@ -72,7 +82,7 @@ Then point any MCP client at the server. `.vscode/mcp.json` has a ready-made con
 - [x] Interrupt handling (wild battles, dialogues) during multi-step actions
 - [x] Beat the first gym end to end over MCP
 - [x] Fix the playtest findings in [BUGS.md](BUGS.md) (party stats, battle type, stale battle text, options screen, gate warps)
-- [ ] Objective layer: let the LLM query what it has achieved (badges, key items, story flags) and what it still needs to do next
+- [ ] Objective layer: let the LLM query what it has achieved (badges, key items, story flags) and what it still needs to do next (milestones up to the Thunder Badge, status line and objective tools done; stuck detection, capability-aware routing and the rest of the story next)
 - [ ] Memory layer for long-horizon play
 - [ ] Tests
 

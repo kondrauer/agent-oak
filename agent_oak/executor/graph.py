@@ -154,27 +154,37 @@ def shortest_path(
     return None
 
 
-def nearest_node(
+def nearest_path(
     world: World,
     start: Node,
     is_goal: Callable[[Node], bool],
     abilities: Iterable[str] = (),
-) -> Node | None:
-    """Find the closest node that satisfies 'is_goal', by path cost.
+) -> list[Edge] | None:
+    """Find the cheapest path to any node that satisfies 'is_goal'.
 
     Dijkstra over the same edges as shortest_path, for goals that are a
-    whole region (any tile of a map) instead of a single tile.
+    whole region (any tile of a map, any tile next to an NPC) instead of a
+    single tile.
+
+    Returns:
+        The edges to the closest goal, empty if 'start' is one, None if no
+            goal is reachable.
     """
     have = frozenset(abilities)
     seen: set[Node] = set()
     best: dict[Node, float] = {start: 0.0}
+    prev: dict[Node, tuple[Node, Edge]] = {}
     pq: list[tuple[float, int, Node]] = [(0.0, 0, start)]
     tick = 0
 
     while pq:
         cost, _, cur = heapq.heappop(pq)
         if is_goal(cur):
-            return cur
+            out: list[Edge] = []
+            while cur in prev:
+                cur, e = prev[cur]
+                out.append(e)
+            return out[::-1]
         if cur in seen:
             continue
         seen.add(cur)
@@ -185,10 +195,24 @@ def nearest_node(
             g = cost + e.cost
             if g < best.get(e.dst, float("inf")):
                 best[e.dst] = g
+                prev[e.dst] = (cur, e)
                 tick += 1
                 heapq.heappush(pq, (g, tick, e.dst))
 
     return None
+
+
+def nearest_node(
+    world: World,
+    start: Node,
+    is_goal: Callable[[Node], bool],
+    abilities: Iterable[str] = (),
+) -> Node | None:
+    """Find the closest node that satisfies 'is_goal', by path cost."""
+    path = nearest_path(world=world, start=start, is_goal=is_goal, abilities=abilities)
+    if path is None:
+        return None
+    return path[-1].dst if path else start
 
 
 if __name__ == "__main__":
