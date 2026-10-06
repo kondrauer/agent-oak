@@ -418,7 +418,7 @@ def _move_cursor(
     raise RuntimeError(f"Could not move the cursor to option {index}")
 
 
-def _stand_tiles(
+def stand_tiles(
     world: World,
     target: Node,
     occupied: set[Node],
@@ -535,7 +535,7 @@ def talk_to(
         )
         occupied = {(const, n.x, n.y) for n in read_npcs(pyboy=pyboy, syms=syms)}
         best: tuple[int, Node, Direction] | None = None
-        for stand, direction in _stand_tiles(
+        for stand, direction in stand_tiles(
             world=world,
             target=(const, x, y),
             occupied=occupied,

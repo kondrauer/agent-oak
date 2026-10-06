@@ -23,6 +23,9 @@ OPPOSITE: dict[Direction, Direction] = {
 
 Node = tuple[str, int, int]
 
+# elevators go to a floor picked in a menu, goto can't do that, routing can
+ELEVATOR = "ELEVATOR"
+
 GotoStatus = Literal["reached", "in_battle", "dialogue_open", "no_path", "gave_up"]
 
 # tilesets pokered's CheckIfInOutsideMap treats as outside
@@ -95,12 +98,28 @@ class World:
         # (x, y) of every warp tile leading into a map, keyed by that map
         self._warp_sources_into: dict[str, set[tuple[int, int]]] = {}
         self._conns: dict[str, dict[Direction, Connection]] = {}
+        self.openable: dict[Node, str] = {}
+        """Tiles solid in the map data that a script opens, by the token
+        (story blocker id) that opens them, e.g. Victory Road's barriers."""
+        self.opened: set[str] = set()
+        """Tokens of openable tiles that are open right now."""
         self._index()
 
     def _index(self) -> None:
         last_map = resolve_last_map(self.maps)
         for const, m in self.maps.items():
             self._conns[const] = {Direction(c.direction): c for c in m.connections}
+            for floor in m.elevator_floors:
+                dest = self.maps[floor.dest_map]
+                dw = dest.warps[self._warp_index(floor.dest_warp)]
+                for w in m.warps:
+                    self._warps_out.setdefault((const, w.x, w.y), []).append(
+                        Edge(
+                            dst=(floor.dest_map, dw.x, dw.y),
+                            kind="warp",
+                            requires=frozenset({ELEVATOR}),
+                        )
+                    )
             for i, w in enumerate(m.warps):
                 if w.dest_map == "LAST_MAP":
                     override = LAST_MAP_OVERRIDES.get((const, i))
@@ -149,7 +168,17 @@ class World:
 
     @staticmethod
     def _req(a: str | None, b: str | None) -> frozenset[str]:
+        """Capabilities needed to step from terrain 'a' onto terrain 'b'."""
+        if b == "cut":
+            return frozenset({"CUT"})
         return frozenset({"SURF"}) if "water" in (a, b) else frozenset()
+
+    def _open_req(self, node: Node) -> frozenset[str]:
+        """Get the token an openable tile needs while it is closed."""
+        token = self.openable.get(node)
+        if token is None or token in self.opened:
+            return frozenset()
+        return frozenset({token})
 
     def warp_destinations(self, node: Node) -> set[Node]:
         """Where the warp on 'node' leads, empty if there is no warp."""
@@ -218,9 +247,11 @@ class World:
         self,
         node: Node,
     ) -> str | None:
-        """'land', 'water' or None if the step is solid."""
+        """'land', 'water', 'cut' (a tree Cut removes) or None if solid."""
         if not self.in_bounds(node):
             return None
+        if node in self.openable:
+            return "land"
 
         ts = self.tilesets[self.maps[node[0]].tileset]
         t = self.collision_tile(node=node)
@@ -228,6 +259,8 @@ class World:
             return "land"
         if t in ts.water:
             return "water"
+        if t in ts.cut_trees:
+            return "cut"
         return None
 
     def _cross(
@@ -289,7 +322,8 @@ class World:
                             dst=dst,
                             kind="connection",
                             direction=d,
-                            requires=self._req(here, self.terrain(node=dst)),
+                            requires=self._req(here, self.terrain(node=dst))
+                            | self._open_req(dst),
                         )
                 continue
 
@@ -325,7 +359,7 @@ class World:
                 dst=dst,
                 kind="walk",
                 direction=d,
-                requires=self._req(here, there),
+                requires=self._req(here, there) | self._open_req(dst),
             )
 
         yield from self._warps_out.get(node, ())

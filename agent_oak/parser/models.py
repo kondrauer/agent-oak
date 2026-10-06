@@ -51,6 +51,13 @@ class Warp(BaseModel):
     dest_warp: int = Field(description="index into dest_map warps")
 
 
+class ElevatorFloor(BaseModel):
+    """A floor an elevator map can take the player to."""
+
+    dest_map: str = Field(description="Map constant of the floor")
+    dest_warp: int = Field(description="1 based warp index on that map")
+
+
 class ObjBase(BaseModel):
     """Common base class for map objects."""
 
@@ -60,6 +67,9 @@ class ObjBase(BaseModel):
     movement: str
     facing: str
     text_id: str
+    name: str | None = Field(
+        default=None, description="Object constant, e.g. CERULEANCITY_RIVAL"
+    )
 
 
 # Optional: remove redunant NPC model in memory/models.py
@@ -126,6 +136,9 @@ class Tileset(BaseModel):
     pair_collisions_water: set[frozenset[int]] = Field(default_factory=set)
     ledges: list[tuple[Direction, int, int]] = Field(default_factory=list)
     counter_tiles: set[int] = Field(default_factory=set)
+    cut_trees: set[int] = Field(
+        default_factory=set, description="Tiles Cut removes, solid until then"
+    )
     grass_tile: int | None = None
 
     @property
@@ -143,6 +156,9 @@ class MapInfo(GameMapConstant):
     warps: list[Warp] = Field(default_factory=list)
     map_objects: list[MapObject] = Field(default_factory=list)
     signs: list[Sign] = Field(default_factory=list)
+    elevator_floors: list[ElevatorFloor] = Field(
+        default_factory=list, description="Floors of an elevator, from its menu"
+    )
 
 
 class GameMap(MapInfo):

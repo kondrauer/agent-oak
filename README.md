@@ -38,6 +38,31 @@ LLM client ──MCP (HTTP)──▶ FastMCP server ──▶ PyBoy (Pokémon Re
 | `find_maps` | Search maps by name substring, returns warps, connections, objects and signs |
 | `goto_map` | A* walk into a map or to an `x, y` on any map, replans around NPCs |
 | `get_map` | ASCII render of the current map in step coordinates, to pick `goto_map` targets |
+| `get_objective` | Current story goal and the other open ones, checked against the game's event flags, with readiness notes |
+| `get_hint` | A more specific hint for the current goal: what to do, then where, then the path from here |
+| `route_to_objective` | Plan the path to the current goal's NPC, tile or map, and walk it with `execute` |
+
+Every action tool (the ones that advance the game) ends its response with a status line like
+`[Goal: Get through Mt. Moon @ MT_MOON_B2F | Party Lv 15 | hint 0]`, preceded by
+`✓ Completed: ...` when the action finished a milestone. The milestones are a dependency graph in
+`data/objectives.yaml`, each with a RAM predicate (event flag, badge, item, town visited, ...).
+`data/constants.json` holds the flag and id tables, regenerate it with
+`uv run python scripts/extract_constants.py`.
+
+Hints get more specific when progress stalls: after `--stall-calls` (default 40) actions without a new
+tile, map, level, badge or milestone, or when the player keeps going between the same few maps, the
+response gets a `💡` hint and the tier goes up, at most to `--max-auto-tier` (default 2). Battles don't
+count as stalling. `--hint-policy on_request` only gives hints when asked, `--hint-policy off` shows only
+the goal's name and turns hints and routing off, for benchmarking. The tier, stall counter and visited
+tiles are kept in `pokemon-red.gb.objectives.json` across restarts (`--reset-objectives` clears it).
+
+Routing to a goal knows what the static map data doesn't: NPCs that stand still, boulders (Strength),
+cut trees (Cut, tiles taken from `UsedCut`), water (Surf), elevators (floors from `scripts/*Elevator.asm`)
+and 47 story blockers listed in the YAML (the old man north of Viridian, the Saffron gate guards, Silph
+Co's card key doors, Victory Road's boulder switches, the Elite Four's doors, ...), each open once its
+predicate holds. Some are closed in the map data and opened by a script (`solid: true`), `goto` walks
+through those once the game opened them. When there is no path, `route_to_objective` says what the way needs, e.g.
+`blocked_by: ["CUT"]` in Vermilion before Cut, and hints from tier 2 on name it.
 
 ## Getting started
 
@@ -72,7 +97,7 @@ Then point any MCP client at the server. `.vscode/mcp.json` has a ready-made con
 - [x] Interrupt handling (wild battles, dialogues) during multi-step actions
 - [x] Beat the first gym end to end over MCP
 - [x] Fix the playtest findings in [BUGS.md](BUGS.md) (party stats, battle type, stale battle text, options screen, gate warps)
-- [ ] Objective layer: let the LLM query what it has achieved (badges, key items, story flags) and what it still needs to do next
+- [ ] Objective layer: let the LLM query what it has achieved (badges, key items, story flags) and what it still needs to do next (59 milestones from Pallet Town to the Champion, status line, objective tools, stuck detection and capability-aware routing done; a notebook for the LLM next)
 - [ ] Memory layer for long-horizon play
 - [ ] Tests
 

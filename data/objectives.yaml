@@ -1,0 +1,1087 @@
+# Story milestones of Pokemon Red, a dependency DAG checked against RAM.
+#
+# Each milestone:
+#   id        unique name, referenced by other milestones' requires
+#   label     short goal name for the status line, e.g. "Beat Misty"
+#   done      predicate that is true once it is achieved (see below)
+#   requires  milestone ids that must be done before this one is a goal
+#   map       map constant where it happens (optional)
+#   target    where on that map: { npc: NAME } (object constant, with or
+#             without the map prefix), { tile: [x, y] } for position
+#             triggered scripts and hidden events, or { warp: MAP } for the
+#             warp leading to MAP (optional)
+#   blurb     one sentence on what to do
+#   readiness soft checks: min_level, ace (species) and ace_level
+#   tags      main for the story path
+#
+# Predicates: event, badge, item, item_anywhere, visited, object_hidden,
+# party_move, capability, and the combinators all, any, not. Names are
+# checked against data/constants.json when loading.
+#
+# Every done flag was checked against the script that sets it in pokered's
+# scripts/*.asm (or engine/ for hidden events), noted per milestone.
+
+# Field moves need a badge, see .cut / .surf / ... in
+# engine/menus/start_sub_menus.asm
+capabilities:
+  CUT: { all: [{ badge: CASCADE }, { party_move: CUT }] }
+  FLY: { all: [{ badge: THUNDER }, { party_move: FLY }] }
+  SURF: { all: [{ badge: SOUL }, { party_move: SURF }] }
+  STRENGTH: { all: [{ badge: RAINBOW }, { party_move: STRENGTH }] }
+  FLASH: { all: [{ badge: BOULDER }, { party_move: FLASH }] }
+
+# Tiles scripts or NPCs keep the player off until 'until' holds. Routing
+# treats them as closed until then and reports the blocker's id when a path
+# needs them. tiles are [x, y] steps, npcs are object constants whose tile
+# is blocked. NPCs that stand still are obstacles anyway, list them here
+# only to explain why and when they move. opened_by is the milestone that
+# opens it: routing prefers ways that open sooner, hints name it.
+blockers:
+  # ViridianCity.asm, ViridianCityCheckGotPokedexScript at (19, 9) sends the
+  # player back, the sleeping old man (TOGGLE_LYING_OLD_MAN) lies next to it
+  - id: VIRIDIAN_OLD_MAN
+    map: VIRIDIAN_CITY
+    opened_by: DELIVER_PARCEL
+    tiles: [[19, 9]]
+    npcs: [OLD_MAN_SLEEPY]
+    until: { event: EVENT_GOT_POKEDEX }
+    blurb: "An old man blocks the road north of Viridian City until you have a Pokedex."
+
+  # PewterCity.asm, PewterCityPlayerLeavingEastCoords until EVENT_BEAT_BROCK
+  - id: PEWTER_EAST_EXIT
+    map: PEWTER_CITY
+    opened_by: BEAT_BROCK
+    tiles: [[35, 17], [36, 17], [37, 18], [37, 19]]
+    until: { event: EVENT_BEAT_BROCK }
+    blurb: "A boy drags you to Pewter Gym when you try to leave east before beating Brock."
+
+  # BillsHouse.asm hides TOGGLE_CERULEAN_GUARD_2 with the S.S. Ticket
+  - id: CERULEAN_GUARD
+    map: CERULEAN_CITY
+    opened_by: GET_SS_TICKET
+    npcs: [GUARD2]
+    until: { object_hidden: TOGGLE_CERULEAN_GUARD_2 }
+    blurb: "A police officer guards the robbed house in Cerulean, he leaves once Bill gave you the S.S. Ticket."
+
+  # VermilionCity.asm, SSAnneTicketCheckCoords: the sailor checks the bag for
+  # S_S_TICKET and turns everyone away after the ship left
+  - id: VERMILION_DOCK_SAILOR
+    map: VERMILION_CITY
+    opened_by: GET_SS_TICKET
+    tiles: [[18, 30]]
+    npcs: [SAILOR1]
+    until: { all: [{ item: S_S_TICKET }, { not: { event: EVENT_SS_ANNE_LEFT } }] }
+    blurb: "The sailor at Vermilion's dock only lets you onto the S.S. Anne with an S.S. Ticket, and not after it left."
+
+  # VermilionGym.asm, VermilionGymSetDoorTile puts the double door block $24
+  # at block (2, 2) until EVENT_2ND_LOCK_OPENED. The .blk has the open floor.
+  - id: VERMILION_GYM_DOOR
+    map: VERMILION_GYM
+    opened_by: OPEN_SURGE_LOCKS
+    tiles: [[4, 4], [5, 4], [4, 5], [5, 5]]
+    until: { event: EVENT_2ND_LOCK_OPENED }
+    blurb: "An electric door blocks Lt. Surge, open it with the two switches hidden in the gym's trash cans."
+
+  # Segment 2
+
+  # Route5Gate.asm .. Route8Gate.asm: the guard turns the player back at
+  # these coords unless wStatusFlags1 has BIT_GAVE_SAFFRON_GUARDS_DRINK, or
+  # RemoveGuardDrink finds one of GuardDrinksList in the bag (and sets it)
+  - id: SAFFRON_GATE_NORTH
+    map: ROUTE_5_GATE
+    opened_by: GET_DRINK
+    tiles: [[3, 3], [4, 3]]
+    until: &gave_drink
+      any:
+        - { status_flag: GAVE_SAFFRON_GUARDS_DRINK }
+        - { item: FRESH_WATER }
+        - { item: SODA_POP }
+        - { item: LEMONADE }
+    blurb: &thirsty "The guards at the gates to Saffron City are thirsty, they let you through once you bring one a drink (Fresh Water, Soda Pop or Lemonade from the vending machines on the Celadon Mart roof)."
+  - id: SAFFRON_GATE_SOUTH
+    map: ROUTE_6_GATE
+    opened_by: GET_DRINK
+    tiles: [[3, 2], [4, 2]]
+    until: *gave_drink
+    blurb: *thirsty
+  - id: SAFFRON_GATE_WEST
+    map: ROUTE_7_GATE
+    opened_by: GET_DRINK
+    tiles: [[3, 3], [3, 4]]
+    until: *gave_drink
+    blurb: *thirsty
+  - id: SAFFRON_GATE_EAST
+    map: ROUTE_8_GATE
+    opened_by: GET_DRINK
+    tiles: [[2, 3], [2, 4]]
+    until: *gave_drink
+    blurb: *thirsty
+
+  # GameCorner.asm hides TOGGLE_GAME_CORNER_ROCKET after his battle, he
+  # stands in front of the poster
+  - id: GAME_CORNER_ROCKET
+    map: GAME_CORNER
+    opened_by: BEAT_GAME_CORNER_ROCKET
+    npcs: [ROCKET]
+    until: { object_hidden: TOGGLE_GAME_CORNER_ROCKET }
+    blurb: "A Team Rocket grunt guards a poster in the Game Corner, talk to him to battle."
+
+  # GameCorner.asm puts the poster wall block $2a at block (8, 2) until
+  # EVENT_FOUND_ROCKET_HIDEOUT, the .blk has the stairs ($43)
+  - id: GAME_CORNER_STAIRS
+    map: GAME_CORNER
+    opened_by: FIND_ROCKET_HIDEOUT
+    tiles: [[16, 4], [17, 4], [16, 5], [17, 5]]
+    until: { event: EVENT_FOUND_ROCKET_HIDEOUT }
+    blurb: "The stairs to the Rocket Hideout are hidden until you press the switch behind the poster in the Game Corner."
+
+  # RocketHideoutElevator.asm checks the bag for LIFT_KEY
+  - id: ROCKET_HIDEOUT_LIFT
+    map: ROCKET_HIDEOUT_ELEVATOR
+    opened_by: GET_LIFT_KEY
+    tiles: [[2, 1], [3, 1]]
+    until: { item: LIFT_KEY }
+    blurb: "The Rocket Hideout's elevator needs the Lift Key, a grunt on B4F drops it."
+
+  # RocketHideoutB4F.asm, RocketHideoutB4FDoorCallbackScript: door block $2d
+  # at block (12, 5) until both guards are beaten, the .blk has the floor
+  - id: ROCKET_HIDEOUT_B4F_DOOR
+    map: ROCKET_HIDEOUT_B4F
+    opened_by: BEAT_HIDEOUT_GIOVANNI
+    tiles: [[24, 10], [25, 10], [24, 11], [25, 11]]
+    until:
+      any:
+        - { event: EVENT_ROCKET_HIDEOUT_4_DOOR_UNLOCKED }
+        - all:
+            - { event: EVENT_BEAT_ROCKET_HIDEOUT_4_TRAINER_0 }
+            - { event: EVENT_BEAT_ROCKET_HIDEOUT_4_TRAINER_1 }
+    blurb: "Giovanni's door on Rocket Hideout B4F opens once you beat the two grunts guarding it."
+
+  # PokemonTower6F.asm, the ghost battle at (10, 16) can only be won with
+  # the Silph Scope (engine/battle/core.asm checks the bag for it)
+  - id: POKEMON_TOWER_GHOST
+    map: POKEMON_TOWER_6F
+    opened_by: BEAT_MAROWAK_GHOST
+    tiles: [[10, 16]]
+    until: { event: EVENT_BEAT_GHOST_MAROWAK }
+    blurb: "A ghost blocks the stairs to the top of Pokemon Tower, you need the Silph Scope to see through it."
+
+  # Segment 3
+
+  # Route12.asm / Route16.asm hide the Snorlax after the battle the Poke
+  # Flute starts
+  - id: ROUTE_12_SNORLAX
+    map: ROUTE_12
+    opened_by: WAKE_SNORLAX
+    npcs: [SNORLAX]
+    until: { object_hidden: TOGGLE_ROUTE_12_SNORLAX }
+    blurb: "A sleeping Snorlax blocks Route 12 south of Lavender, wake it with the Poke Flute."
+  - id: ROUTE_16_SNORLAX
+    map: ROUTE_16
+    opened_by: WAKE_SNORLAX
+    npcs: [SNORLAX]
+    until: { object_hidden: TOGGLE_ROUTE_16_SNORLAX }
+    blurb: "A sleeping Snorlax blocks Route 16 west of Celadon, wake it with the Poke Flute."
+
+  # Route16Gate1F.asm / Route18Gate1F.asm turn the player back at these
+  # coords without a BICYCLE in the bag
+  - id: CYCLING_ROAD_NORTH
+    map: ROUTE_16_GATE_1F
+    tiles: [[4, 7], [4, 8], [4, 9], [4, 10]]
+    until: { item: BICYCLE }
+    blurb: &bike "Cycling Road is for bikes only, get the Bicycle from the Bike Shop in Cerulean with the Bike Voucher."
+  - id: CYCLING_ROAD_SOUTH
+    map: ROUTE_18_GATE_1F
+    tiles: [[4, 3], [4, 4], [4, 5], [4, 6]]
+    until: { item: BICYCLE }
+    blurb: *bike
+
+  # PokemonTower7F.asm hides TOGGLE_SAFFRON_CITY_E (ROCKET8, in front of
+  # Silph Co's door) when Mr. Fuji is rescued
+  - id: SILPH_CO_ENTRANCE
+    map: SAFFRON_CITY
+    opened_by: RESCUE_MR_FUJI
+    npcs: [ROCKET8]
+    until: { object_hidden: TOGGLE_SAFFRON_CITY_E }
+    blurb: "A Team Rocket grunt blocks Silph Co's door until you rescued Mr. Fuji in Pokemon Tower."
+
+  # SilphCo11F.asm hides TOGGLE_SAFFRON_CITY_1-7 when Giovanni is beaten,
+  # ROCKET3 stands in front of the gym's door
+  - id: SAFFRON_GYM_ROCKET
+    map: SAFFRON_CITY
+    opened_by: BEAT_SILPH_GIOVANNI
+    npcs: [ROCKET3]
+    until: { object_hidden: TOGGLE_SAFFRON_CITY_3 }
+    blurb: "A Team Rocket grunt blocks Saffron Gym until you beat Giovanni at the top of Silph Co."
+
+  # Segment 4
+
+  # CinnabarIsland.asm sends the player back at (18, 4), in front of the gym
+  # door, without the SECRET_KEY in the bag
+  - id: CINNABAR_GYM_DOOR
+    map: CINNABAR_ISLAND
+    opened_by: GET_SECRET_KEY
+    tiles: [[18, 4]]
+    until: { item: SECRET_KEY }
+    blurb: "Cinnabar Gym's door is locked, the Secret Key is in the burned-out Pokemon Mansion."
+
+  # ViridianCity.asm, ViridianCityCheckGymOpenScript: closed at (32, 8)
+  # until the badges are exactly the seven other than Earth
+  - id: VIRIDIAN_GYM_DOOR
+    map: VIRIDIAN_CITY
+    opened_by: BEAT_BLAINE
+    tiles: [[32, 8]]
+    until:
+      any:
+        - { event: EVENT_VIRIDIAN_GYM_OPEN }
+        - all:
+            - { badge: BOULDER }
+            - { badge: CASCADE }
+            - { badge: THUNDER }
+            - { badge: RAINBOW }
+            - { badge: SOUL }
+            - { badge: MARSH }
+            - { badge: VOLCANO }
+    blurb: "Viridian Gym stays locked until you have the other seven badges."
+
+  # Route23.asm, Route23GuardsYCoords: on each of these rows a guard checks
+  # one badge (the first row only for x < 14) and sets EVENT_PASSED_*_CHECK
+  - id: ROUTE_23_EARTH_GUARD
+    map: ROUTE_23
+    opened_by: BEAT_GIOVANNI
+    area: [0, 35, 13, 35]
+    until: { any: [{ event: EVENT_PASSED_EARTHBADGE_CHECK }, { badge: EARTH }] }
+    blurb: "A guard on Route 23 only lets trainers with the Earth Badge pass."
+  - id: ROUTE_23_VOLCANO_GUARD
+    map: ROUTE_23
+    opened_by: BEAT_BLAINE
+    area: [0, 56, 19, 56]
+    until: { any: [{ event: EVENT_PASSED_VOLCANOBADGE_CHECK }, { badge: VOLCANO }] }
+    blurb: "A guard on Route 23 only lets trainers with the Volcano Badge pass."
+  - id: ROUTE_23_MARSH_GUARD
+    map: ROUTE_23
+    opened_by: BEAT_SABRINA
+    area: [0, 85, 19, 85]
+    until: { any: [{ event: EVENT_PASSED_MARSHBADGE_CHECK }, { badge: MARSH }] }
+    blurb: "A guard on Route 23 only lets trainers with the Marsh Badge pass."
+  - id: ROUTE_23_SOUL_GUARD
+    map: ROUTE_23
+    opened_by: BEAT_KOGA
+    area: [0, 96, 19, 96]
+    until: { any: [{ event: EVENT_PASSED_SOULBADGE_CHECK }, { badge: SOUL }] }
+    blurb: "A guard on Route 23 only lets trainers with the Soul Badge pass."
+  - id: ROUTE_23_RAINBOW_GUARD
+    map: ROUTE_23
+    opened_by: BEAT_ERIKA
+    area: [0, 105, 19, 105]
+    until: { any: [{ event: EVENT_PASSED_RAINBOWBADGE_CHECK }, { badge: RAINBOW }] }
+    blurb: "A guard on Route 23 only lets trainers with the Rainbow Badge pass."
+  - id: ROUTE_23_THUNDER_GUARD
+    map: ROUTE_23
+    opened_by: BEAT_LT_SURGE
+    area: [0, 119, 19, 119]
+    until: { any: [{ event: EVENT_PASSED_THUNDERBADGE_CHECK }, { badge: THUNDER }] }
+    blurb: "A guard on Route 23 only lets trainers with the Thunder Badge pass."
+  - id: ROUTE_23_CASCADE_GUARD
+    map: ROUTE_23
+    opened_by: BEAT_MISTY
+    area: [0, 136, 19, 136]
+    until: { any: [{ event: EVENT_PASSED_CASCADEBADGE_CHECK }, { badge: CASCADE }] }
+    blurb: "A guard on Route 23 only lets trainers with the Cascade Badge pass."
+
+  # VictoryRoad1F.asm .. 3F.asm put the open block $1d (2F: $15) at these
+  # blocks when a boulder sits on the switch, the .blk files have them closed
+  - id: VICTORY_ROAD_1F_BARRIER
+    map: VICTORY_ROAD_1F
+    solid: true
+    opened_by: TEACH_STRENGTH
+    tiles: [[8, 12], [9, 12], [8, 13], [9, 13]]
+    until: { event: EVENT_VICTORY_ROAD_1_BOULDER_ON_SWITCH }
+    blurb: &boulder_switch "A barrier in Victory Road opens when you push a boulder onto its switch with Strength."
+  - id: VICTORY_ROAD_2F_BARRIER_1
+    map: VICTORY_ROAD_2F
+    solid: true
+    opened_by: TEACH_STRENGTH
+    tiles: [[6, 8], [7, 8], [6, 9], [7, 9]]
+    until: { event: EVENT_VICTORY_ROAD_2_BOULDER_ON_SWITCH1 }
+    blurb: *boulder_switch
+  - id: VICTORY_ROAD_2F_BARRIER_2
+    map: VICTORY_ROAD_2F
+    solid: true
+    opened_by: TEACH_STRENGTH
+    tiles: [[22, 14], [23, 14], [22, 15], [23, 15]]
+    until: { event: EVENT_VICTORY_ROAD_2_BOULDER_ON_SWITCH2 }
+    blurb: *boulder_switch
+  - id: VICTORY_ROAD_3F_BARRIER
+    map: VICTORY_ROAD_3F
+    solid: true
+    opened_by: TEACH_STRENGTH
+    tiles: [[6, 10], [7, 10], [6, 11], [7, 11]]
+    until: { event: EVENT_VICTORY_ROAD_3_BOULDER_ON_SWITCH1 }
+    blurb: *boulder_switch
+
+  # LoreleisRoom.asm / BrunosRoom.asm / AgathasRoom.asm: the exit block at
+  # (2, 0) is the closed door until the room's trainer is beaten. Lorelei's
+  # .blk has it closed, Bruno's and Agatha's open.
+  - id: LORELEI_EXIT
+    map: LORELEIS_ROOM
+    solid: true
+    opened_by: BEAT_LORELEI
+    tiles: [[4, 0], [5, 0], [4, 1], [5, 1]]
+    until: { event: EVENT_BEAT_LORELEIS_ROOM_TRAINER_0 }
+    blurb: "The door out of Lorelei's room opens once you beat her."
+  - id: BRUNO_EXIT
+    map: BRUNOS_ROOM
+    opened_by: BEAT_BRUNO
+    tiles: [[4, 0], [5, 0], [4, 1], [5, 1]]
+    until: { event: EVENT_BEAT_BRUNOS_ROOM_TRAINER_0 }
+    blurb: "The door out of Bruno's room opens once you beat him."
+  - id: AGATHA_EXIT
+    map: AGATHAS_ROOM
+    opened_by: BEAT_AGATHA
+    tiles: [[4, 0], [5, 0], [4, 1], [5, 1]]
+    until: { event: EVENT_BEAT_AGATHAS_ROOM_TRAINER_0 }
+    blurb: "The door out of Agatha's room opens once you beat her."
+
+  # LancesRoom.asm, LanceShowOrHideEntranceBlocks: the corridor to Lance at
+  # blocks (2, 6) and (3, 6) is open ($31, $32) until
+  # EVENT_LANCES_ROOM_LOCK_DOOR, which is set once the player walked past it
+  # and closes it behind them. The .blk has it closed ($72, $73).
+  - id: LANCE_ENTRANCE
+    map: LANCES_ROOM
+    solid: true
+    tiles: [[4, 12], [5, 12], [6, 12], [7, 12], [4, 13], [5, 13], [6, 13], [7, 13]]
+    until: { not: { event: EVENT_LANCES_ROOM_LOCK_DOOR } }
+    blurb: "The door to Lance closed behind you, there's no way back until the challenge is over."
+
+  # SilphCo<N>F.asm GateCallbackScript: a door block at each `lb bc, y, x`
+  # until its EVENT_SILPH_CO_<N>_UNLOCKED_DOOR<k>, walking into it with the
+  # CARD_KEY in the bag unlocks it. The .blk files have the doors open.
+  - id: SILPH_CO_2F_DOORS
+    map: SILPH_CO_2F
+    opened_by: GET_CARD_KEY
+    tiles: [[4, 4], [5, 4], [4, 5], [5, 5], [4, 10], [5, 10], [4, 11], [5, 11]]
+    until:
+      any:
+        - { item: CARD_KEY }
+        - all:
+            - { event: EVENT_SILPH_CO_2_UNLOCKED_DOOR1 }
+            - { event: EVENT_SILPH_CO_2_UNLOCKED_DOOR2 }
+    blurb: &card_key "Silph Co's locked doors open with the Card Key from 5F."
+
+  - id: SILPH_CO_3F_DOORS
+    map: SILPH_CO_3F
+    opened_by: GET_CARD_KEY
+    tiles: [[8, 8], [9, 8], [8, 9], [9, 9], [16, 8], [17, 8], [16, 9], [17, 9]]
+    until:
+      any:
+        - { item: CARD_KEY }
+        - all:
+            - { event: EVENT_SILPH_CO_3_UNLOCKED_DOOR1 }
+            - { event: EVENT_SILPH_CO_3_UNLOCKED_DOOR2 }
+    blurb: *card_key
+
+  - id: SILPH_CO_4F_DOORS
+    map: SILPH_CO_4F
+    opened_by: GET_CARD_KEY
+    tiles: [[4, 12], [5, 12], [4, 13], [5, 13], [12, 8], [13, 8], [12, 9], [13, 9]]
+    until:
+      any:
+        - { item: CARD_KEY }
+        - all:
+            - { event: EVENT_SILPH_CO_4_UNLOCKED_DOOR1 }
+            - { event: EVENT_SILPH_CO_4_UNLOCKED_DOOR2 }
+    blurb: *card_key
+
+  - id: SILPH_CO_5F_DOORS
+    map: SILPH_CO_5F
+    opened_by: GET_CARD_KEY
+    tiles: [[6, 4], [7, 4], [6, 5], [7, 5], [6, 12], [7, 12], [6, 13], [7, 13], [14, 10], [15, 10], [14, 11], [15, 11]]
+    until:
+      any:
+        - { item: CARD_KEY }
+        - all:
+            - { event: EVENT_SILPH_CO_5_UNLOCKED_DOOR1 }
+            - { event: EVENT_SILPH_CO_5_UNLOCKED_DOOR2 }
+            - { event: EVENT_SILPH_CO_5_UNLOCKED_DOOR3 }
+    blurb: *card_key
+
+  - id: SILPH_CO_6F_DOORS
+    map: SILPH_CO_6F
+    opened_by: GET_CARD_KEY
+    tiles: [[4, 12], [5, 12], [4, 13], [5, 13]]
+    until:
+      any:
+        - { item: CARD_KEY }
+        - all:
+            - { event: EVENT_SILPH_CO_6_UNLOCKED_DOOR }
+    blurb: *card_key
+
+  - id: SILPH_CO_7F_DOORS
+    map: SILPH_CO_7F
+    opened_by: GET_CARD_KEY
+    tiles: [[10, 6], [11, 6], [10, 7], [11, 7], [20, 4], [21, 4], [20, 5], [21, 5], [20, 12], [21, 12], [20, 13], [21, 13]]
+    until:
+      any:
+        - { item: CARD_KEY }
+        - all:
+            - { event: EVENT_SILPH_CO_7_UNLOCKED_DOOR1 }
+            - { event: EVENT_SILPH_CO_7_UNLOCKED_DOOR2 }
+            - { event: EVENT_SILPH_CO_7_UNLOCKED_DOOR3 }
+    blurb: *card_key
+
+  - id: SILPH_CO_8F_DOORS
+    map: SILPH_CO_8F
+    opened_by: GET_CARD_KEY
+    tiles: [[6, 8], [7, 8], [6, 9], [7, 9]]
+    until:
+      any:
+        - { item: CARD_KEY }
+        - all:
+            - { event: EVENT_SILPH_CO_8_UNLOCKED_DOOR }
+    blurb: *card_key
+
+  - id: SILPH_CO_9F_DOORS
+    map: SILPH_CO_9F
+    opened_by: GET_CARD_KEY
+    tiles: [[2, 8], [3, 8], [2, 9], [3, 9], [18, 4], [19, 4], [18, 5], [19, 5], [18, 10], [19, 10], [18, 11], [19, 11], [10, 12], [11, 12], [10, 13], [11, 13]]
+    until:
+      any:
+        - { item: CARD_KEY }
+        - all:
+            - { event: EVENT_SILPH_CO_9_UNLOCKED_DOOR1 }
+            - { event: EVENT_SILPH_CO_9_UNLOCKED_DOOR2 }
+            - { event: EVENT_SILPH_CO_9_UNLOCKED_DOOR3 }
+            - { event: EVENT_SILPH_CO_9_UNLOCKED_DOOR4 }
+    blurb: *card_key
+
+  - id: SILPH_CO_10F_DOORS
+    map: SILPH_CO_10F
+    opened_by: GET_CARD_KEY
+    tiles: [[10, 8], [11, 8], [10, 9], [11, 9]]
+    until:
+      any:
+        - { item: CARD_KEY }
+        - all:
+            - { event: EVENT_SILPH_CO_10_UNLOCKED_DOOR }
+    blurb: *card_key
+
+  - id: SILPH_CO_11F_DOORS
+    map: SILPH_CO_11F
+    opened_by: GET_CARD_KEY
+    tiles: [[6, 12], [7, 12], [6, 13], [7, 13]]
+    until:
+      any:
+        - { item: CARD_KEY }
+        - all:
+            - { event: EVENT_SILPH_CO_11_UNLOCKED_DOOR }
+    blurb: *card_key
+
+milestones:
+  # Segment 1: Pallet Town to the Thunder Badge
+
+  # OaksLab.asm, set when Oak leads the player in. The trigger is
+  # PalletTown.asm: wYCoord 1 at the north exit.
+  - id: MEET_OAK
+    label: Meet Prof. Oak
+    done: { event: EVENT_FOLLOWED_OAK_INTO_LAB }
+    map: PALLET_TOWN
+    target: { tile: [10, 1] }
+    blurb: "Try to leave Pallet Town north into the tall grass, Prof. Oak will stop you."
+    tags: [main]
+
+  # OaksLab.asm
+  - id: GET_STARTER
+    label: Choose a starter
+    done: { event: EVENT_GOT_STARTER }
+    requires: [MEET_OAK]
+    map: OAKS_LAB
+    target: { npc: SQUIRTLE_POKE_BALL }
+    blurb: "Pick one of the three Poke Balls on Oak's table as your first Pokemon."
+    tags: [main]
+
+  # OaksLab.asm, the rival stops you on the way out
+  - id: BATTLE_RIVAL_LAB
+    label: Battle the rival
+    done: { event: EVENT_BATTLED_RIVAL_IN_OAKS_LAB }
+    requires: [GET_STARTER]
+    map: OAKS_LAB
+    target: { npc: RIVAL }
+    blurb: "Your rival challenges you as you try to leave Oak's lab. Win or lose, the story goes on."
+    tags: [main]
+
+  # ViridianMart.asm, the clerk hands it over when you enter
+  - id: GET_OAKS_PARCEL
+    label: Get Oak's Parcel
+    done: { event: EVENT_GOT_OAKS_PARCEL }
+    requires: [BATTLE_RIVAL_LAB]
+    map: VIRIDIAN_MART
+    target: { npc: CLERK }
+    blurb: "Go north to Viridian City, the Poke Mart clerk has a parcel for Prof. Oak."
+    tags: [main]
+
+  # OaksLab.asm sets both flags together when Oak takes the parcel
+  - id: DELIVER_PARCEL
+    label: Deliver the parcel
+    done: { all: [{ event: EVENT_OAK_GOT_PARCEL }, { event: EVENT_GOT_POKEDEX }] }
+    requires: [GET_OAKS_PARCEL]
+    map: OAKS_LAB
+    target: { npc: OAK1 }
+    blurb: "Bring the parcel back to Prof. Oak in Pallet Town, he gives you a Pokedex."
+    tags: [main]
+
+  # ViridianCity.asm: the old man blocks the north exit until EVENT_GOT_POKEDEX
+  - id: REACH_PEWTER
+    label: Reach Pewter City
+    done: { visited: PEWTER_CITY }
+    requires: [DELIVER_PARCEL]
+    map: PEWTER_CITY
+    blurb: "Head north from Viridian City through Viridian Forest to Pewter City."
+    tags: [main]
+
+  # PewterGym.asm
+  - id: BEAT_BROCK
+    label: Beat Brock
+    done: { badge: BOULDER }
+    requires: [REACH_PEWTER]
+    map: PEWTER_GYM
+    target: { npc: BROCK }
+    blurb: "Defeat Brock, the Rock-type leader of Pewter Gym, for the Boulder Badge."
+    readiness: { ace: ONIX, ace_level: 14 }
+    tags: [main]
+
+  # MtMoonB2F.asm, he blocks the corridor to the fossils and the exit.
+  # PewterCity.asm keeps the east exit to Route 3 closed until Brock.
+  - id: BEAT_MT_MOON_SUPER_NERD
+    label: Get through Mt. Moon
+    done: { event: EVENT_BEAT_MT_MOON_EXIT_SUPER_NERD }
+    requires: [BEAT_BROCK]
+    map: MT_MOON_B2F
+    target: { npc: SUPER_NERD }
+    blurb: "Take Route 3 east to Mt. Moon and beat the Super Nerd guarding the fossils on the bottom floor."
+    tags: [main]
+
+  - id: REACH_CERULEAN
+    label: Reach Cerulean City
+    done: { visited: CERULEAN_CITY }
+    requires: [BEAT_MT_MOON_SUPER_NERD]
+    map: CERULEAN_CITY
+    blurb: "Leave Mt. Moon and follow Route 4 east to Cerulean City."
+    tags: [main]
+
+  # CeruleanCity.asm, triggered at CeruleanCityCoords2 on the way north
+  - id: BEAT_CERULEAN_RIVAL
+    label: Beat the rival
+    done: { event: EVENT_BEAT_CERULEAN_RIVAL }
+    requires: [REACH_CERULEAN]
+    map: CERULEAN_CITY
+    target: { tile: [20, 6] }
+    blurb: "Your rival waits at the north end of Cerulean City, by the bridge to Route 24."
+    tags: [main]
+
+  # Route24.asm, set after the five bridge trainers and the Rocket
+  - id: CROSS_NUGGET_BRIDGE
+    label: Cross Nugget Bridge
+    done: { event: EVENT_BEAT_ROUTE24_ROCKET }
+    requires: [BEAT_CERULEAN_RIVAL]
+    map: ROUTE_24
+    target: { npc: COOLTRAINER_M1 }
+    blurb: "Beat the five trainers on Nugget Bridge north of Cerulean, then the man who hands out the Nugget."
+    tags: [main]
+
+  # BillsHouse.asm, BillsHousePokemonEntersMachineScript
+  - id: MEET_BILL
+    label: Meet Bill
+    done: { event: EVENT_BILL_SAID_USE_CELL_SEPARATOR }
+    requires: [CROSS_NUGGET_BRIDGE]
+    map: BILLS_HOUSE
+    target: { npc: BILL_POKEMON }
+    blurb: "Follow Route 25 east to Bill's cottage and talk to the Pokemon inside, it is Bill."
+    tags: [main]
+
+  # engine/events/hidden_events/bills_house_pc.asm, a hidden event at (1, 4)
+  - id: USE_CELL_SEPARATOR
+    label: Run the Cell Separator
+    done: { event: EVENT_USED_CELL_SEPARATOR_ON_BILL }
+    requires: [MEET_BILL]
+    map: BILLS_HOUSE
+    target: { tile: [1, 4] }
+    blurb: "Use Bill's PC in the top left of the cottage to run the Cell Separator."
+    tags: [main]
+
+  # BillsHouse.asm, BillsHouseBillSSTicketText
+  - id: GET_SS_TICKET
+    label: Get the S.S. Ticket
+    done: { any: [{ event: EVENT_GOT_SS_TICKET }, { item_anywhere: S_S_TICKET }] }
+    requires: [USE_CELL_SEPARATOR]
+    map: BILLS_HOUSE
+    target: { npc: BILL1 }
+    blurb: "Talk to Bill after he is back to normal, he gives you an S.S. Ticket."
+    tags: [main]
+
+  # CeruleanGym.asm
+  - id: BEAT_MISTY
+    label: Beat Misty
+    done: { badge: CASCADE }
+    requires: [REACH_CERULEAN]
+    map: CERULEAN_GYM
+    target: { npc: MISTY }
+    blurb: "Defeat Misty, the Water-type leader of Cerulean Gym, for the Cascade Badge."
+    readiness: { ace: STARMIE, ace_level: 21 }
+    tags: [main]
+
+  # CeruleanCity.asm. The south and east of Cerulean are only reachable
+  # through the robbed house and its backyard. CERULEANCITY_GUARD2 blocks the
+  # house door until Bill hands out the S.S. Ticket (BillsHouse.asm hides
+  # him), and the backyard is three tiles high with the battle triggered at
+  # (30, 7) and (30, 9) next to the Rocket at (30, 8).
+  - id: BEAT_CERULEAN_ROCKET
+    label: Beat the Rocket thief
+    done: { event: EVENT_BEAT_CERULEAN_ROCKET_THIEF }
+    requires: [GET_SS_TICKET]
+    map: CERULEAN_CITY
+    target: { npc: ROCKET }
+    blurb: "With the police officer gone, walk through the robbed house in Cerulean and beat the Team Rocket thief in its backyard."
+    tags: [main]
+
+  # wTownVisitedFlag is set by MarkTownVisitedAndLoadToggleableObjects.
+  # Route 5 south of Cerulean, Underground Path, Route 6.
+  - id: REACH_VERMILION
+    label: Reach Vermilion City
+    done: { visited: VERMILION_CITY }
+    requires: [BEAT_CERULEAN_ROCKET]
+    map: VERMILION_CITY
+    blurb: "From the backyard of the robbed house go south out of Cerulean on Route 5, take the Underground Path to Route 6 and on to Vermilion City."
+    tags: [main]
+
+  # SSAnneCaptainsRoom.asm. The rival on SS_ANNE_2F has no event flag, only
+  # wSSAnne2FCurScript and TOGGLE_SS_ANNE_2F_RIVAL (hidden before and after).
+  - id: GET_HM01
+    label: Get HM01 Cut
+    done: { any: [{ event: EVENT_GOT_HM01 }, { item_anywhere: HM_CUT }] }
+    requires: [REACH_VERMILION]
+    map: SS_ANNE_CAPTAINS_ROOM
+    target: { npc: CAPTAIN }
+    blurb: "Show the S.S. Ticket at Vermilion's dock, board the S.S. Anne, get past your rival on 2F and rub the seasick captain's back for HM01."
+    tags: [main]
+
+  # VermilionDock.asm, the ship leaves once you are off it with HM01
+  - id: SS_ANNE_DEPARTED
+    label: Leave the S.S. Anne
+    done: { event: EVENT_SS_ANNE_LEFT }
+    requires: [GET_HM01]
+    map: VERMILION_DOCK
+    blurb: "Get off the S.S. Anne, it sets sail and can't be boarded again."
+    tags: [main]
+
+  # Cut is usable with the Cascade Badge and a party Pokemon knowing it
+  - id: TEACH_CUT
+    label: Teach Cut
+    done: { capability: CUT }
+    requires: [GET_HM01, BEAT_MISTY]
+    blurb: "Teach HM01 Cut to a party Pokemon from the bag, with the Cascade Badge it can cut small trees."
+    tags: [main]
+
+  # engine/events/hidden_events/vermilion_gym_trash.asm
+  - id: OPEN_SURGE_LOCKS
+    label: Open Surge's door
+    done: { event: EVENT_2ND_LOCK_OPENED }
+    requires: [TEACH_CUT]
+    map: VERMILION_GYM
+    blurb: "Cut the tree in front of Vermilion Gym, inside find the two switches hidden in the trash cans to open the electric door."
+    tags: [main]
+
+  # VermilionGym.asm
+  - id: BEAT_LT_SURGE
+    label: Beat Lt. Surge
+    done: { badge: THUNDER }
+    requires: [OPEN_SURGE_LOCKS]
+    map: VERMILION_GYM
+    target: { npc: LT_SURGE }
+    blurb: "Defeat Lt. Surge, the Electric-type leader of Vermilion Gym, for the Thunder Badge."
+    readiness: { ace: RAICHU, ace_level: 24 }
+    tags: [main]
+
+  # Segment 2: the Thunder Badge to the Poke Flute
+
+  # Routing: Route 9 east of Cerulean starts behind a cut tree, Rock Tunnel
+  # is the only way to Lavender while the Saffron gates are closed
+  - id: REACH_LAVENDER
+    label: Reach Lavender Town
+    done: { visited: LAVENDER_TOWN }
+    requires: [TEACH_CUT, BEAT_CERULEAN_ROCKET]
+    map: LAVENDER_TOWN
+    blurb: "Cut the tree on Route 9 east of Cerulean, follow Route 10 south through Rock Tunnel (Flash helps in the dark) to Lavender Town."
+    tags: [main]
+
+  # Routing: Route 8 west of Lavender, the Underground Path to Route 7
+  - id: REACH_CELADON
+    label: Reach Celadon City
+    done: { visited: CELADON_CITY }
+    requires: [REACH_LAVENDER]
+    map: CELADON_CITY
+    blurb: "Go west from Lavender on Route 8, take the Underground Path under Saffron to Route 7 and on to Celadon City."
+    tags: [main]
+
+  # CeladonGym.asm, the gym door is behind a cut tree
+  - id: BEAT_ERIKA
+    label: Beat Erika
+    done: { badge: RAINBOW }
+    requires: [REACH_CELADON, TEACH_CUT]
+    map: CELADON_GYM
+    target: { npc: ERIKA }
+    blurb: "Cut the tree in front of Celadon Gym and defeat Erika, the Grass-type leader, for the Rainbow Badge."
+    readiness: { ace: VILEPLUME, ace_level: 29 }
+    tags: [main]
+
+  # GameCorner.asm hides TOGGLE_GAME_CORNER_ROCKET after the battle
+  - id: BEAT_GAME_CORNER_ROCKET
+    label: Beat the Game Corner grunt
+    done: { object_hidden: TOGGLE_GAME_CORNER_ROCKET }
+    requires: [REACH_CELADON]
+    map: GAME_CORNER
+    target: { npc: ROCKET }
+    blurb: "A Team Rocket grunt stands at a poster in Celadon's Game Corner, beat him."
+    tags: [main]
+
+  # GameCorner.asm, the poster text sets it and reveals the stairs
+  - id: FIND_ROCKET_HIDEOUT
+    label: Find the Rocket Hideout
+    done: { event: EVENT_FOUND_ROCKET_HIDEOUT }
+    requires: [BEAT_GAME_CORNER_ROCKET]
+    map: GAME_CORNER
+    target: { tile: [9, 4] }
+    blurb: "Press the switch behind the poster the grunt guarded, it opens the stairs to the Rocket Hideout."
+    tags: [main]
+
+  # RocketHideoutB4F.asm shows the Lift Key ball when ROCKET3 is beaten
+  # (EVENT_ROCKET_DROPPED_LIFT_KEY), the elevator checks the bag for it
+  - id: GET_LIFT_KEY
+    label: Get the Lift Key
+    done: { item_anywhere: LIFT_KEY }
+    requires: [FIND_ROCKET_HIDEOUT]
+    map: ROCKET_HIDEOUT_B4F
+    target: { npc: ROCKET3 }
+    blurb: "Take the stairs down to Rocket Hideout B4F, beat the grunt there and pick up the Lift Key he drops."
+    tags: [main]
+
+  # RocketHideoutB4F.asm
+  - id: BEAT_HIDEOUT_GIOVANNI
+    label: Beat Giovanni in the hideout
+    done: { event: EVENT_BEAT_ROCKET_HIDEOUT_GIOVANNI }
+    requires: [GET_LIFT_KEY]
+    map: ROCKET_HIDEOUT_B4F
+    target: { npc: GIOVANNI }
+    blurb: "Ride the hideout's elevator to B4F with the Lift Key, beat the two guards to open the door and defeat Giovanni."
+    readiness: { ace: KANGASKHAN, ace_level: 29 }
+    tags: [main]
+
+  # the SILPH_SCOPE item ball on B4F, shown when Giovanni leaves
+  - id: GET_SILPH_SCOPE
+    label: Get the Silph Scope
+    done: { item_anywhere: SILPH_SCOPE }
+    requires: [BEAT_HIDEOUT_GIOVANNI]
+    map: ROCKET_HIDEOUT_B4F
+    target: { npc: SILPH_SCOPE }
+    blurb: "Pick up the Silph Scope Giovanni left behind, it reveals the ghosts in Pokemon Tower."
+    tags: [main]
+
+  # PokemonTower2F.asm, triggered at (15, 5) or (14, 6)
+  - id: BEAT_TOWER_RIVAL
+    label: Beat the rival in the tower
+    done: { event: EVENT_BEAT_POKEMON_TOWER_RIVAL }
+    requires: [REACH_LAVENDER]
+    map: POKEMON_TOWER_2F
+    target: { tile: [15, 5] }
+    blurb: "Your rival waits on the second floor of Pokemon Tower in Lavender."
+    tags: [main]
+
+  # PokemonTower6F.asm, the battle at (10, 16) needs the Silph Scope
+  - id: BEAT_MAROWAK_GHOST
+    label: Beat the Marowak ghost
+    done: { event: EVENT_BEAT_GHOST_MAROWAK }
+    requires: [GET_SILPH_SCOPE]
+    map: POKEMON_TOWER_6F
+    target: { tile: [10, 16] }
+    blurb: "Climb Pokemon Tower with the Silph Scope, the ghost on 6F in front of the stairs is a Marowak you can now battle."
+    tags: [main]
+
+  # PokemonTower7F.asm sets it after the three grunts
+  - id: RESCUE_MR_FUJI
+    label: Rescue Mr. Fuji
+    done: { event: EVENT_RESCUED_MR_FUJI }
+    requires: [BEAT_MAROWAK_GHOST]
+    map: POKEMON_TOWER_7F
+    target: { npc: MR_FUJI }
+    blurb: "Beat the Team Rocket grunts on the top floor of Pokemon Tower and talk to Mr. Fuji."
+    tags: [main]
+
+  # MrFujisHouse.asm
+  - id: GET_POKE_FLUTE
+    label: Get the Poke Flute
+    done: { any: [{ event: EVENT_GOT_POKE_FLUTE }, { item_anywhere: POKE_FLUTE }] }
+    requires: [RESCUE_MR_FUJI]
+    map: MR_FUJIS_HOUSE
+    target: { npc: MR_FUJI }
+    blurb: "Visit Mr. Fuji at his house in Lavender, he gives you the Poke Flute to wake sleeping Pokemon."
+    tags: [main]
+
+  # Segment 3: Snorlax to the Marsh Badge
+
+  # Route12.asm / Route16.asm, set after the battle the Poke Flute starts
+  - id: WAKE_SNORLAX
+    label: Wake Snorlax
+    done: { any: [{ event: EVENT_BEAT_ROUTE12_SNORLAX }, { event: EVENT_BEAT_ROUTE16_SNORLAX }] }
+    requires: [GET_POKE_FLUTE]
+    map: ROUTE_12
+    target: { npc: SNORLAX }
+    blurb: "Play the Poke Flute next to the Snorlax sleeping on Route 12 south of Lavender, then battle or catch it."
+    tags: [main]
+
+  - id: REACH_FUCHSIA
+    label: Reach Fuchsia City
+    done: { visited: FUCHSIA_CITY }
+    requires: [WAKE_SNORLAX]
+    map: FUCHSIA_CITY
+    blurb: "Follow Routes 12 to 15 south and west along the coast to Fuchsia City."
+    tags: [main]
+
+  # FuchsiaGym.asm
+  - id: BEAT_KOGA
+    label: Beat Koga
+    done: { badge: SOUL }
+    requires: [REACH_FUCHSIA]
+    map: FUCHSIA_GYM
+    target: { npc: KOGA }
+    blurb: "Defeat Koga, the Poison-type leader of Fuchsia Gym (mind the invisible walls), for the Soul Badge."
+    readiness: { ace: WEEZING, ace_level: 43 }
+    tags: [main]
+
+  # SafariZoneSecretHouse.asm
+  - id: GET_HM03
+    label: Get HM03 Surf
+    done: { any: [{ event: EVENT_GOT_HM03 }, { item_anywhere: HM_SURF }] }
+    requires: [REACH_FUCHSIA]
+    map: SAFARI_ZONE_SECRET_HOUSE
+    target: { npc: FISHING_GURU }
+    blurb: "Pay 500 to enter the Safari Zone in Fuchsia and find the secret house in its far west area, its owner gives you HM03 Surf."
+    tags: [main]
+
+  # the GOLD_TEETH item ball in SAFARI_ZONE_WEST
+  - id: GET_GOLD_TEETH
+    label: Find the Gold Teeth
+    done: { any: [{ item_anywhere: GOLD_TEETH }, { event: EVENT_GAVE_GOLD_TEETH }] }
+    requires: [REACH_FUCHSIA]
+    map: SAFARI_ZONE_WEST
+    target: { npc: GOLD_TEETH }
+    blurb: "The Safari Zone warden lost his Gold Teeth, they lie in the west area of the Safari Zone."
+    tags: [main]
+
+  # WardensHouse.asm takes the teeth, then gives HM04
+  - id: GET_HM04
+    label: Get HM04 Strength
+    done: { any: [{ event: EVENT_GOT_HM04 }, { item_anywhere: HM_STRENGTH }] }
+    requires: [GET_GOLD_TEETH]
+    map: WARDENS_HOUSE
+    target: { npc: WARDEN }
+    blurb: "Bring the Gold Teeth to the warden's house in Fuchsia, he gives you HM04 Strength."
+    tags: [main]
+
+  - id: TEACH_SURF
+    label: Teach Surf
+    done: { capability: SURF }
+    requires: [GET_HM03, BEAT_KOGA]
+    blurb: "Teach HM03 Surf to a party Pokemon, with the Soul Badge it can carry you over water."
+    tags: [main]
+
+  # the vending machines are bg_events on the roof, any drink opens the gates
+  - id: GET_DRINK
+    label: Get a drink for the guards
+    done:
+      any:
+        - { status_flag: GAVE_SAFFRON_GUARDS_DRINK }
+        - { item: FRESH_WATER }
+        - { item: SODA_POP }
+        - { item: LEMONADE }
+    requires: [REACH_CELADON]
+    map: CELADON_MART_ROOF
+    target: { tile: [10, 1] }
+    blurb: "Buy a drink (Fresh Water, Soda Pop or Lemonade) from a vending machine on the Celadon Mart roof for the thirsty guards at Saffron's gates."
+    tags: [main]
+
+  - id: REACH_SAFFRON
+    label: Reach Saffron City
+    done: { visited: SAFFRON_CITY }
+    requires: [GET_DRINK]
+    map: SAFFRON_CITY
+    blurb: "Give the drink to a guard at one of the gates around Saffron City and walk in."
+    tags: [main]
+
+  # the CARD_KEY item ball on SILPH_CO_5F
+  - id: GET_CARD_KEY
+    label: Get the Card Key
+    done: { item_anywhere: CARD_KEY }
+    requires: [REACH_SAFFRON, RESCUE_MR_FUJI]
+    map: SILPH_CO_5F
+    target: { npc: CARD_KEY }
+    blurb: "Team Rocket took over Silph Co in Saffron, climb to 5F and find the Card Key that opens its locked doors."
+    tags: [main]
+
+  # SilphCo7F.asm, triggered at (3, 2) or (3, 3)
+  - id: BEAT_SILPH_RIVAL
+    label: Beat the rival in Silph Co
+    done: { event: EVENT_BEAT_SILPH_CO_RIVAL }
+    requires: [GET_CARD_KEY]
+    map: SILPH_CO_7F
+    target: { tile: [3, 2] }
+    blurb: "Your rival waits on Silph Co 7F next to the warp pad leading up to the president."
+    tags: [main]
+
+  # SilphCo11F.asm
+  - id: BEAT_SILPH_GIOVANNI
+    label: Beat Giovanni in Silph Co
+    done: { event: EVENT_BEAT_SILPH_CO_GIOVANNI }
+    requires: [GET_CARD_KEY]
+    map: SILPH_CO_11F
+    target: { npc: GIOVANNI }
+    blurb: "Reach the president's office on Silph Co 11F through the warp pads and defeat Giovanni."
+    readiness: { ace: NIDOQUEEN, ace_level: 41 }
+    tags: [main]
+
+  # SaffronGym.asm, the Rocket at the door leaves with Giovanni
+  - id: BEAT_SABRINA
+    label: Beat Sabrina
+    done: { badge: MARSH }
+    requires: [BEAT_SILPH_GIOVANNI]
+    map: SAFFRON_GYM
+    target: { npc: SABRINA }
+    blurb: "Defeat Sabrina, the Psychic-type leader of Saffron Gym (a maze of warp pads), for the Marsh Badge."
+    readiness: { ace: ALAKAZAM, ace_level: 43 }
+    tags: [main]
+
+  # Segment 4: Cinnabar to the Champion
+
+  # Strength needs the Rainbow Badge, Victory Road's boulders need it
+  - id: TEACH_STRENGTH
+    label: Teach Strength
+    done: { capability: STRENGTH }
+    requires: [GET_HM04, BEAT_ERIKA]
+    blurb: "Teach HM04 Strength to a party Pokemon, with the Rainbow Badge it can push boulders."
+    tags: [main]
+
+  - id: REACH_CINNABAR
+    label: Reach Cinnabar Island
+    done: { visited: CINNABAR_ISLAND }
+    requires: [TEACH_SURF]
+    map: CINNABAR_ISLAND
+    blurb: "Surf south from Pallet Town along Route 21 to Cinnabar Island."
+    tags: [main]
+
+  # the SECRET_KEY item ball on POKEMON_MANSION_B1F. The mansion's statue
+  # switches (EVENT_MANSION_SWITCH_ON) swap which doors are open, routing
+  # does not model that.
+  - id: GET_SECRET_KEY
+    label: Get the Secret Key
+    done: { item_anywhere: SECRET_KEY }
+    requires: [REACH_CINNABAR]
+    map: POKEMON_MANSION_B1F
+    target: { npc: SECRET_KEY }
+    blurb: "Search the Pokemon Mansion on Cinnabar for the Secret Key in its basement, the statue switches open and close its doors."
+    tags: [main]
+
+  # CinnabarGym.asm
+  - id: BEAT_BLAINE
+    label: Beat Blaine
+    done: { badge: VOLCANO }
+    requires: [GET_SECRET_KEY]
+    map: CINNABAR_GYM
+    target: { npc: BLAINE }
+    blurb: "Open Cinnabar Gym with the Secret Key and defeat Blaine, the Fire-type leader, for the Volcano Badge."
+    readiness: { ace: ARCANINE, ace_level: 47 }
+    tags: [main]
+
+  # ViridianGym.asm, the gym opens with the other seven badges
+  - id: BEAT_GIOVANNI
+    label: Beat Giovanni
+    done: { badge: EARTH }
+    requires: [BEAT_ERIKA, BEAT_SABRINA, BEAT_BLAINE]
+    map: VIRIDIAN_GYM
+    target: { npc: GIOVANNI }
+    blurb: "With seven badges Viridian Gym is open, its leader is Giovanni. Defeat him for the Earth Badge."
+    readiness: { ace: RHYDON, ace_level: 50 }
+    tags: [main]
+
+  # Route22.asm, at (29, 4) or (29, 5) once ViridianGym.asm set
+  # EVENT_2ND_ROUTE22_RIVAL_BATTLE
+  - id: BEAT_ROUTE22_RIVAL
+    label: Beat the rival on Route 22
+    done: { event: EVENT_BEAT_ROUTE22_RIVAL_2ND_BATTLE }
+    requires: [BEAT_GIOVANNI]
+    map: ROUTE_22
+    target: { tile: [29, 5] }
+    blurb: "Your rival waits on Route 22 west of Viridian, on the way to the Pokemon League."
+    tags: [main]
+
+  - id: REACH_INDIGO_PLATEAU
+    label: Reach Indigo Plateau
+    done: { visited: INDIGO_PLATEAU }
+    requires: [BEAT_ROUTE22_RIVAL, TEACH_STRENGTH, TEACH_SURF]
+    map: INDIGO_PLATEAU
+    blurb: "Show your badges to the guards on Route 23 and push your way through Victory Road with Strength to Indigo Plateau."
+    tags: [main]
+
+  # LoreleisRoom.asm
+  - id: BEAT_LORELEI
+    label: Beat Lorelei
+    done: { event: EVENT_BEAT_LORELEIS_ROOM_TRAINER_0 }
+    requires: [REACH_INDIGO_PLATEAU]
+    map: LORELEIS_ROOM
+    target: { npc: LORELEI }
+    blurb: "Challenge the Elite Four, Lorelei uses Ice-type Pokemon. Losing sends you back to the start."
+    readiness: { ace: LAPRAS, ace_level: 56 }
+    tags: [main]
+
+  # BrunosRoom.asm
+  - id: BEAT_BRUNO
+    label: Beat Bruno
+    done: { event: EVENT_BEAT_BRUNOS_ROOM_TRAINER_0 }
+    requires: [BEAT_LORELEI]
+    map: BRUNOS_ROOM
+    target: { npc: BRUNO }
+    blurb: "Bruno of the Elite Four uses Fighting- and Rock-type Pokemon."
+    readiness: { ace: MACHAMP, ace_level: 58 }
+    tags: [main]
+
+  # AgathasRoom.asm
+  - id: BEAT_AGATHA
+    label: Beat Agatha
+    done: { event: EVENT_BEAT_AGATHAS_ROOM_TRAINER_0 }
+    requires: [BEAT_BRUNO]
+    map: AGATHAS_ROOM
+    target: { npc: AGATHA }
+    blurb: "Agatha of the Elite Four uses Ghost- and Poison-type Pokemon."
+    readiness: { ace: GENGAR, ace_level: 60 }
+    tags: [main]
+
+  # LancesRoom.asm
+  - id: BEAT_LANCE
+    label: Beat Lance
+    done: { event: EVENT_BEAT_LANCE }
+    requires: [BEAT_AGATHA]
+    map: LANCES_ROOM
+    target: { npc: LANCE }
+    blurb: "Lance, the last of the Elite Four, uses Dragon-type Pokemon."
+    readiness: { ace: DRAGONITE, ace_level: 62 }
+    tags: [main]
+
+  # ChampionsRoom.asm, the rival's team depends on the starter, its
+  # strongest is Lv 65 either way
+  - id: BEAT_CHAMPION
+    label: Beat the Champion
+    done: { event: EVENT_BEAT_CHAMPION_RIVAL }
+    requires: [BEAT_LANCE]
+    map: CHAMPIONS_ROOM
+    target: { npc: RIVAL }
+    blurb: "Your rival is the Champion. Beat him to enter the Hall of Fame."
+    readiness: { min_level: 65 }
+    tags: [main]

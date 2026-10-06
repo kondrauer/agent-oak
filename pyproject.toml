@@ -11,6 +11,7 @@ dependencies = [
     "pillow>=12.2.0",
     "pyboy>=2.7.0,<2.7.1",
     "pygraphviz>=2.0.2",
+    "pyyaml>=6.0.3",
 ]
 
 [dependency-groups]
