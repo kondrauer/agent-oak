@@ -95,6 +95,7 @@ def parse_maps(
         warps: list[Warp] = []
         signs: list[Sign] = []
         map_objects: list[MapObject] = []
+        object_names: list[str] = []
 
         with map_header_file.open() as file:
             map_header_line = file.readline().strip()
@@ -145,7 +146,10 @@ def parse_maps(
             for line in file.readlines():
                 line = line.split(";", 1)[0].strip()
 
-                if line.startswith("warp_event"):
+                if line.startswith("const_export"):
+                    # one per object_event, in the same order
+                    object_names.append(line.replace("const_export", "").strip())
+                elif line.startswith("warp_event"):
                     x, y, dest_map, dest_warp = (
                         line.replace(
                             "warp_event",
@@ -191,6 +195,9 @@ def parse_maps(
                     )
                     map_object = _classify_map_object(args=args)
                     map_objects.append(map_object)
+
+        for map_object, name in zip(map_objects, object_names):
+            map_object.name = name
 
         map_const = consts[const]
 

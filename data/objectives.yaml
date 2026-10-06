@@ -1,0 +1,242 @@
+# Story milestones of Pokemon Red, a dependency DAG checked against RAM.
+#
+# Each milestone:
+#   id        unique name, referenced by other milestones' requires
+#   label     short goal name for the status line, e.g. "Beat Misty"
+#   done      predicate that is true once it is achieved (see below)
+#   requires  milestone ids that must be done before this one is a goal
+#   map       map constant where it happens (optional)
+#   target    where on that map: { npc: NAME } (object constant, with or
+#             without the map prefix), { tile: [x, y] } for position
+#             triggered scripts and hidden events, or { warp: MAP } for the
+#             warp leading to MAP (optional)
+#   blurb     one sentence on what to do
+#   readiness soft checks: min_level, ace (species) and ace_level
+#   tags      main for the story path
+#
+# Predicates: event, badge, item, item_anywhere, visited, object_hidden,
+# party_move, capability, and the combinators all, any, not. Names are
+# checked against data/constants.json when loading.
+#
+# Every done flag was checked against the script that sets it in pokered's
+# scripts/*.asm (or engine/ for hidden events), noted per milestone.
+
+# Field moves need a badge, see .cut / .surf / ... in
+# engine/menus/start_sub_menus.asm
+capabilities:
+  CUT: { all: [{ badge: CASCADE }, { party_move: CUT }] }
+  FLY: { all: [{ badge: THUNDER }, { party_move: FLY }] }
+  SURF: { all: [{ badge: SOUL }, { party_move: SURF }] }
+  STRENGTH: { all: [{ badge: RAINBOW }, { party_move: STRENGTH }] }
+  FLASH: { all: [{ badge: BOULDER }, { party_move: FLASH }] }
+
+milestones:
+  # Segment 1: Pallet Town to the Thunder Badge
+
+  # OaksLab.asm, set when Oak leads the player in. The trigger is
+  # PalletTown.asm: wYCoord 1 at the north exit.
+  - id: MEET_OAK
+    label: Meet Prof. Oak
+    done: { event: EVENT_FOLLOWED_OAK_INTO_LAB }
+    map: PALLET_TOWN
+    target: { tile: [10, 1] }
+    blurb: "Try to leave Pallet Town north into the tall grass, Prof. Oak will stop you."
+    tags: [main]
+
+  # OaksLab.asm
+  - id: GET_STARTER
+    label: Choose a starter
+    done: { event: EVENT_GOT_STARTER }
+    requires: [MEET_OAK]
+    map: OAKS_LAB
+    target: { npc: SQUIRTLE_POKE_BALL }
+    blurb: "Pick one of the three Poke Balls on Oak's table as your first Pokemon."
+    tags: [main]
+
+  # OaksLab.asm, the rival stops you on the way out
+  - id: BATTLE_RIVAL_LAB
+    label: Battle the rival
+    done: { event: EVENT_BATTLED_RIVAL_IN_OAKS_LAB }
+    requires: [GET_STARTER]
+    map: OAKS_LAB
+    target: { npc: RIVAL }
+    blurb: "Your rival challenges you as you try to leave Oak's lab. Win or lose, the story goes on."
+    tags: [main]
+
+  # ViridianMart.asm, the clerk hands it over when you enter
+  - id: GET_OAKS_PARCEL
+    label: Get Oak's Parcel
+    done: { event: EVENT_GOT_OAKS_PARCEL }
+    requires: [BATTLE_RIVAL_LAB]
+    map: VIRIDIAN_MART
+    target: { npc: CLERK }
+    blurb: "Go north to Viridian City, the Poke Mart clerk has a parcel for Prof. Oak."
+    tags: [main]
+
+  # OaksLab.asm sets both flags together when Oak takes the parcel
+  - id: DELIVER_PARCEL
+    label: Deliver the parcel
+    done: { all: [{ event: EVENT_OAK_GOT_PARCEL }, { event: EVENT_GOT_POKEDEX }] }
+    requires: [GET_OAKS_PARCEL]
+    map: OAKS_LAB
+    target: { npc: OAK1 }
+    blurb: "Bring the parcel back to Prof. Oak in Pallet Town, he gives you a Pokedex."
+    tags: [main]
+
+  # ViridianCity.asm: the old man blocks the north exit until EVENT_GOT_POKEDEX
+  - id: REACH_PEWTER
+    label: Reach Pewter City
+    done: { visited: PEWTER_CITY }
+    requires: [DELIVER_PARCEL]
+    map: PEWTER_CITY
+    blurb: "Head north from Viridian City through Viridian Forest to Pewter City."
+    tags: [main]
+
+  # PewterGym.asm
+  - id: BEAT_BROCK
+    label: Beat Brock
+    done: { badge: BOULDER }
+    requires: [REACH_PEWTER]
+    map: PEWTER_GYM
+    target: { npc: BROCK }
+    blurb: "Defeat Brock, the Rock-type leader of Pewter Gym, for the Boulder Badge."
+    readiness: { ace: ONIX, ace_level: 14 }
+    tags: [main]
+
+  # MtMoonB2F.asm, he blocks the corridor to the fossils and the exit.
+  # PewterCity.asm keeps the east exit to Route 3 closed until Brock.
+  - id: BEAT_MT_MOON_SUPER_NERD
+    label: Get through Mt. Moon
+    done: { event: EVENT_BEAT_MT_MOON_EXIT_SUPER_NERD }
+    requires: [BEAT_BROCK]
+    map: MT_MOON_B2F
+    target: { npc: SUPER_NERD }
+    blurb: "Take Route 3 east to Mt. Moon and beat the Super Nerd guarding the fossils on the bottom floor."
+    tags: [main]
+
+  - id: REACH_CERULEAN
+    label: Reach Cerulean City
+    done: { visited: CERULEAN_CITY }
+    requires: [BEAT_MT_MOON_SUPER_NERD]
+    map: CERULEAN_CITY
+    blurb: "Leave Mt. Moon and follow Route 4 east to Cerulean City."
+    tags: [main]
+
+  # CeruleanCity.asm, triggered at CeruleanCityCoords2 on the way north
+  - id: BEAT_CERULEAN_RIVAL
+    label: Beat the rival
+    done: { event: EVENT_BEAT_CERULEAN_RIVAL }
+    requires: [REACH_CERULEAN]
+    map: CERULEAN_CITY
+    target: { tile: [20, 6] }
+    blurb: "Your rival waits at the north end of Cerulean City, by the bridge to Route 24."
+    tags: [main]
+
+  # Route24.asm, set after the five bridge trainers and the Rocket
+  - id: CROSS_NUGGET_BRIDGE
+    label: Cross Nugget Bridge
+    done: { event: EVENT_BEAT_ROUTE24_ROCKET }
+    requires: [BEAT_CERULEAN_RIVAL]
+    map: ROUTE_24
+    target: { npc: COOLTRAINER_M1 }
+    blurb: "Beat the five trainers on Nugget Bridge north of Cerulean, then the man who hands out the Nugget."
+    tags: [main]
+
+  # BillsHouse.asm, BillsHousePokemonEntersMachineScript
+  - id: MEET_BILL
+    label: Meet Bill
+    done: { event: EVENT_BILL_SAID_USE_CELL_SEPARATOR }
+    requires: [CROSS_NUGGET_BRIDGE]
+    map: BILLS_HOUSE
+    target: { npc: BILL_POKEMON }
+    blurb: "Follow Route 25 east to Bill's cottage and talk to the Pokemon inside, it is Bill."
+    tags: [main]
+
+  # engine/events/hidden_events/bills_house_pc.asm, a hidden event at (1, 4)
+  - id: USE_CELL_SEPARATOR
+    label: Run the Cell Separator
+    done: { event: EVENT_USED_CELL_SEPARATOR_ON_BILL }
+    requires: [MEET_BILL]
+    map: BILLS_HOUSE
+    target: { tile: [1, 4] }
+    blurb: "Use Bill's PC in the top left of the cottage to run the Cell Separator."
+    tags: [main]
+
+  # BillsHouse.asm, BillsHouseBillSSTicketText
+  - id: GET_SS_TICKET
+    label: Get the S.S. Ticket
+    done: { any: [{ event: EVENT_GOT_SS_TICKET }, { item_anywhere: S_S_TICKET }] }
+    requires: [USE_CELL_SEPARATOR]
+    map: BILLS_HOUSE
+    target: { npc: BILL1 }
+    blurb: "Talk to Bill after he is back to normal, he gives you an S.S. Ticket."
+    tags: [main]
+
+  # CeruleanGym.asm
+  - id: BEAT_MISTY
+    label: Beat Misty
+    done: { badge: CASCADE }
+    requires: [REACH_CERULEAN]
+    map: CERULEAN_GYM
+    target: { npc: MISTY }
+    blurb: "Defeat Misty, the Water-type leader of Cerulean Gym, for the Cascade Badge."
+    readiness: { ace: STARMIE, ace_level: 21 }
+    tags: [main]
+
+  # wTownVisitedFlag is set by MarkTownVisitedAndLoadToggleableObjects.
+  # Route 5 south of Cerulean, Underground Path, Route 6.
+  - id: REACH_VERMILION
+    label: Reach Vermilion City
+    done: { visited: VERMILION_CITY }
+    requires: [REACH_CERULEAN]
+    map: VERMILION_CITY
+    blurb: "Go south from Cerulean on Route 5, take the Underground Path to Route 6 and on to Vermilion City."
+    tags: [main]
+
+  # SSAnneCaptainsRoom.asm. The rival on SS_ANNE_2F has no event flag, only
+  # wSSAnne2FCurScript and TOGGLE_SS_ANNE_2F_RIVAL (hidden before and after).
+  - id: GET_HM01
+    label: Get HM01 Cut
+    done: { any: [{ event: EVENT_GOT_HM01 }, { item_anywhere: HM_CUT }] }
+    requires: [GET_SS_TICKET, REACH_VERMILION]
+    map: SS_ANNE_CAPTAINS_ROOM
+    target: { npc: CAPTAIN }
+    blurb: "Show the S.S. Ticket at Vermilion's dock, board the S.S. Anne, get past your rival on 2F and rub the seasick captain's back for HM01."
+    tags: [main]
+
+  # VermilionDock.asm, the ship leaves once you are off it with HM01
+  - id: SS_ANNE_DEPARTED
+    label: Leave the S.S. Anne
+    done: { event: EVENT_SS_ANNE_LEFT }
+    requires: [GET_HM01]
+    map: VERMILION_DOCK
+    blurb: "Get off the S.S. Anne, it sets sail and can't be boarded again."
+    tags: [main]
+
+  # Cut is usable with the Cascade Badge and a party Pokemon knowing it
+  - id: TEACH_CUT
+    label: Teach Cut
+    done: { capability: CUT }
+    requires: [GET_HM01, BEAT_MISTY]
+    blurb: "Teach HM01 Cut to a party Pokemon from the bag, with the Cascade Badge it can cut small trees."
+    tags: [main]
+
+  # engine/events/hidden_events/vermilion_gym_trash.asm
+  - id: OPEN_SURGE_LOCKS
+    label: Open Surge's door
+    done: { event: EVENT_2ND_LOCK_OPENED }
+    requires: [TEACH_CUT]
+    map: VERMILION_GYM
+    blurb: "Cut the tree in front of Vermilion Gym, inside find the two switches hidden in the trash cans to open the electric door."
+    tags: [main]
+
+  # VermilionGym.asm
+  - id: BEAT_LT_SURGE
+    label: Beat Lt. Surge
+    done: { badge: THUNDER }
+    requires: [OPEN_SURGE_LOCKS]
+    map: VERMILION_GYM
+    target: { npc: LT_SURGE }
+    blurb: "Defeat Lt. Surge, the Electric-type leader of Vermilion Gym, for the Thunder Badge."
+    readiness: { ace: RAICHU, ace_level: 24 }
+    tags: [main]

@@ -13,6 +13,7 @@ dependencies = [
     { name = "pillow" },
     { name = "pyboy" },
     { name = "pygraphviz" },
+    { name = "pyyaml" },
 ]
 
 [package.dev-dependencies]
@@ -32,6 +33,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=12.2.0" },
     { name = "pyboy", specifier = ">=2.7.0,<2.7.1" },
     { name = "pygraphviz", specifier = ">=2.0.2" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
 ]
 
 [package.metadata.requires-dev]

@@ -60,6 +60,9 @@ class ObjBase(BaseModel):
     movement: str
     facing: str
     text_id: str
+    name: str | None = Field(
+        default=None, description="Object constant, e.g. CERULEANCITY_RIVAL"
+    )
 
 
 # Optional: remove redunant NPC model in memory/models.py
