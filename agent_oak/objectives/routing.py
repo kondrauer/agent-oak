@@ -10,7 +10,7 @@ from agent_oak.executor.graph import nearest_path
 from agent_oak.executor.models import Edge, Node, World
 from agent_oak.objectives.milestones import Milestone
 
-RouteStatus = Literal["route", "here", "no_location", "no_path"]
+RouteStatus = Literal["route", "here", "no_location", "no_path", "disabled"]
 
 
 class RouteTarget(BaseModel):
@@ -32,7 +32,8 @@ class Route(BaseModel):
 
     status: RouteStatus = Field(
         description="route (path found), here (already there), no_location "
-        "(the goal has no place, e.g. a menu action) or no_path"
+        "(the goal has no place, e.g. a menu action), no_path or disabled "
+        "(hints are off)"
     )
     milestone: str
     target: RouteTarget | None = None

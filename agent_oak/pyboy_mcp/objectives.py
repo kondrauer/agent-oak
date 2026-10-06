@@ -21,9 +21,10 @@ ACTION_TAG = "action"
 class ObjectiveMiddleware(Middleware):
     """Add the objective status line to every action tool's result.
 
-    Milestones completed by the action come first ("✓ Completed: ..."), the
-    status line last. Results with structured content also get both under
-    'objective', for clients that only read that.
+    Milestones completed by the action come first ("✓ Completed: ..."), then
+    a hint when the player seems stuck ("💡 ..."), the status line last.
+    Results with structured content also get these lines under 'objective',
+    for clients that only read that.
     """
 
     def __init__(self, tracker: ObjectiveTracker) -> None:
@@ -44,10 +45,14 @@ class ObjectiveMiddleware(Middleware):
 
         # reads RAM under mem_lock, keep it off the event loop
         observation = await asyncio.to_thread(self.tracker.observe)
-        completed = observation.completed_line()
-        lines = [completed, observation.status] if completed else [observation.status]
+        first = [
+            line
+            for line in (observation.completed_line(), observation.notice)
+            if line is not None
+        ]
+        lines = [*first, observation.status]
 
-        before = [mt.TextContent(type="text", text=completed)] if completed else []
+        before = [mt.TextContent(type="text", text=line) for line in first]
         after = [mt.TextContent(type="text", text=observation.status)]
         structured = result.structured_content
         if isinstance(structured, dict):

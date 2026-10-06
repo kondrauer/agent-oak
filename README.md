@@ -49,6 +49,13 @@ Every action tool (the ones that advance the game) ends its response with a stat
 `data/constants.json` holds the flag and id tables, regenerate it with
 `uv run python scripts/extract_constants.py`.
 
+Hints get more specific when progress stalls: after `--stall-calls` (default 40) actions without a new
+tile, map, level, badge or milestone, or when the player keeps going between the same few maps, the
+response gets a `💡` hint and the tier goes up, at most to `--max-auto-tier` (default 2). Battles don't
+count as stalling. `--hint-policy on_request` only gives hints when asked, `--hint-policy off` shows only
+the goal's name and turns hints and routing off, for benchmarking. The tier, stall counter and visited
+tiles are kept in `pokemon-red.gb.objectives.json` across restarts (`--reset-objectives` clears it).
+
 ## Getting started
 
 Requires Python 3.13, [uv](https://docs.astral.sh/uv/) and Graphviz (for `pygraphviz`). The ROM is not included: place your own `pokemon-red.gb` in the repo root.
@@ -82,7 +89,7 @@ Then point any MCP client at the server. `.vscode/mcp.json` has a ready-made con
 - [x] Interrupt handling (wild battles, dialogues) during multi-step actions
 - [x] Beat the first gym end to end over MCP
 - [x] Fix the playtest findings in [BUGS.md](BUGS.md) (party stats, battle type, stale battle text, options screen, gate warps)
-- [ ] Objective layer: let the LLM query what it has achieved (badges, key items, story flags) and what it still needs to do next (milestones up to the Thunder Badge, status line and objective tools done; stuck detection, capability-aware routing and the rest of the story next)
+- [ ] Objective layer: let the LLM query what it has achieved (badges, key items, story flags) and what it still needs to do next (milestones up to the Thunder Badge, status line, objective tools and stuck detection done; capability-aware routing and the rest of the story next)
 - [ ] Memory layer for long-horizon play
 - [ ] Tests
 

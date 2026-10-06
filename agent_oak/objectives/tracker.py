@@ -1,7 +1,10 @@
 """Track objective progress across tool calls and report it to the LLM."""
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from threading import Lock
+from typing import Any
 
 from pyboy import PyBoy
 from pydantic import BaseModel, Field
@@ -11,6 +14,7 @@ from agent_oak.executor.navigation import _get_current_node, goto
 from agent_oak.objectives.evaluator import Evaluator, State, primary
 from agent_oak.objectives.hints import MAX_TIER, hint_text
 from agent_oak.objectives.milestones import Milestone
+from agent_oak.objectives.progress import HintPolicy, Position, Progress
 from agent_oak.objectives.ram import Ram
 from agent_oak.objectives.routing import Route, RouteTarget, plan_route
 from agent_oak.parser.models import GameMap
@@ -18,6 +22,9 @@ from agent_oak.pyboy_mcp.emulator import running
 
 MAX_STATUS_LEN = 150
 MAX_COMPLETED_SHOWN = 3
+SAVE_EVERY_CALLS = 20
+STATE_VERSION = 1
+HINTS_OFF = "Hints are off (--hint-policy off)"
 
 
 class GoalInfo(BaseModel):
@@ -76,6 +83,8 @@ class Observation:
 
     completed: list[Milestone]
     status: str
+    notice: str | None = None
+    """Set when the hint was raised because progress stalled."""
 
     def completed_line(self) -> str | None:
         """'✓ Completed: ...' for the milestones done since the last call."""
@@ -120,7 +129,9 @@ class ObjectiveTracker:
     """Evaluate the milestones after every action and keep the hint tier.
 
     The tier belongs to the current goal and goes back to 0 when the goal
-    changes.
+    changes. With the auto policy it goes up when progress stalls. Tier,
+    stall counters and visited tiles are saved to 'state_path', so a restart
+    keeps them.
     """
 
     def __init__(
@@ -131,18 +142,65 @@ class ObjectiveTracker:
         syms: dict[str, int],
         maps_by_id: dict[int, GameMap],
         mem_lock: Lock,
+        policy: HintPolicy | None = None,
+        state_path: Path | None = None,
     ) -> None:
-        """Track the objectives of the game running in 'pyboy'."""
+        """Track the objectives of the game running in 'pyboy'.
+
+        Args:
+            evaluator: Evaluates the milestones.
+            world: The world model used for routing.
+            pyboy: The emulator instance.
+            syms: The symbol table mapping names to addresses.
+            maps_by_id: Parsed game maps keyed by map id.
+            mem_lock: A lock to synchronize access to the emulator's memory.
+            policy: How hints are given, auto by default.
+            state_path: JSON file to keep the tracker's state in, loaded
+                when it exists. None keeps it in memory only.
+        """
         self.evaluator = evaluator
         self.world = world
         self.pyboy = pyboy
         self.syms = syms
         self.maps_by_id = maps_by_id
         self.mem_lock = mem_lock
+        self.policy = policy or HintPolicy()
+        self.state_path = state_path
         self.hint_tier = 0
+        self.progress = Progress(policy=self.policy)
         self._goal_id: str | None = None
         self._last_state: State | None = None
+        self._calls_since_save = 0
         self._lock = Lock()
+        if state_path is not None and state_path.exists():
+            self._load(json.loads(state_path.read_text()))
+
+    def _load(self, data: dict[str, Any]) -> None:
+        if data.get("version") != STATE_VERSION:
+            return
+        self._goal_id = data.get("goal")
+        self.hint_tier = data.get("hint_tier", 0)
+        done = set(data.get("done", []))
+        self._last_state = {
+            m.id: m.id in done for m in self.evaluator.objectives.milestones
+        }
+        self.progress = Progress.from_json(data.get("progress", {}), self.policy)
+
+    def save(self) -> None:
+        """Write the state to 'state_path', if there is one."""
+        if self.state_path is None:
+            return
+        with self._lock:
+            data = {
+                "version": STATE_VERSION,
+                "goal": self._goal_id,
+                "hint_tier": self.hint_tier,
+                "done": [k for k, v in (self._last_state or {}).items() if v],
+                "progress": self.progress.to_json(),
+            }
+        tmp = self.state_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, separators=(",", ":")))
+        tmp.replace(self.state_path)
 
     def _read(self) -> tuple[Ram, State, list[Milestone]]:
         ram = self.evaluator.snapshot(
@@ -157,8 +215,24 @@ class ObjectiveTracker:
             self.hint_tier = 0
         return ram, state, frontier
 
+    def _position(self, ram: Ram) -> Position:
+        memory = self.pyboy.memory
+        with self.mem_lock:
+            map_id = memory[self.syms["wCurMap"]]
+            x, y = memory[self.syms["wXCoord"]], memory[self.syms["wYCoord"]]
+            in_battle = memory[self.syms["wIsInBattle"]] != 0
+        game_map = self.maps_by_id.get(map_id)
+        return Position(
+            map=game_map.const if game_map else f"MAP_{map_id:02X}",
+            x=x,
+            y=y,
+            in_battle=in_battle,
+            party_levels=tuple(ram.party_levels()),
+            badges=ram.data["wObtainedBadges"][0],
+        )
+
     def observe(self) -> Observation:
-        """Evaluate after an action: what got done and the status line."""
+        """Evaluate after an action: what got done, stalls and the status line."""
         with self._lock:
             ram, state, frontier = self._read()
             last = self._last_state
@@ -168,10 +242,44 @@ class ObjectiveTracker:
                 if last is not None and state[m.id] and not last[m.id]
             ]
             self._last_state = state
-            return Observation(
+            update = self.progress.update(self._position(ram), completed=len(completed))
+            notice = self._escalate(
+                goal=primary(frontier),
+                ram=ram,
+                stalled=update.stalled,
+                oscillating=update.oscillating,
+            )
+            observation = Observation(
                 completed=completed,
                 status=self._status_line(ram=ram, frontier=frontier),
+                notice=notice,
             )
+            self._calls_since_save += 1
+            save = notice is not None or self._calls_since_save >= SAVE_EVERY_CALLS
+        if save:
+            self._calls_since_save = 0
+            self.save()
+        return observation
+
+    def _escalate(
+        self,
+        goal: Milestone | None,
+        ram: Ram,
+        stalled: bool,
+        oscillating: list[str] | None,
+    ) -> str | None:
+        """Raise the tier when stuck (auto policy), the notice to show."""
+        if goal is None or self.policy.mode != "auto":
+            return None
+        if oscillating:
+            reason = f"You keep going between {', '.join(oscillating)}."
+        elif stalled:
+            reason = f"No progress in the last {self.policy.stall_calls} actions."
+        else:
+            return None
+        if self.hint_tier < min(self.policy.max_auto_tier, MAX_TIER):
+            self.hint_tier += 1
+        return f"💡 {reason} Hint: {self._hint(goal, ram)}"
 
     def _status_line(self, ram: Ram, frontier: list[Milestone]) -> str:
         goal = primary(frontier)
@@ -180,11 +288,13 @@ class ObjectiveTracker:
         if goal is None:
             return f"[Goal: none left | {party}]"
 
-        head = f"Goal: {goal.label}" + (f" @ {goal.map}" if goal.map else "")
+        hints = self.policy.mode != "off"
+        head = f"Goal: {goal.label}" + (f" @ {goal.map}" if goal.map and hints else "")
         tail = [party]
-        if (warning := _readiness_warning(goal, levels)) is not None:
+        if hints and (warning := _readiness_warning(goal, levels)) is not None:
             tail.append(warning)
-        tail.append(f"hint {self.hint_tier}")
+        if hints:
+            tail.append(f"hint {self.hint_tier}")
 
         others = [m.label for m in frontier[1:]]
         while True:
@@ -216,7 +326,11 @@ class ObjectiveTracker:
         return hint_text(goal, tier=self.hint_tier, route=route)
 
     def report(self) -> ObjectiveReport:
-        """Report the frontier, the hint at the current tier and readiness notes."""
+        """Report the frontier, the hint at the current tier and readiness notes.
+
+        With hints off only the goals' labels.
+        """
+        hints = self.policy.mode != "off"
         with self._lock:
             ram, state, frontier = self._read()
             levels = ram.party_levels()
@@ -224,18 +338,22 @@ class ObjectiveTracker:
                 GoalInfo(
                     id=m.id,
                     label=m.label,
-                    blurb=m.blurb,
-                    target=_target(m),
-                    readiness=_readiness_note(m, levels),
+                    blurb=m.blurb if hints else "",
+                    target=_target(m) if hints else None,
+                    readiness=_readiness_note(m, levels) if hints else None,
                 )
                 for m in frontier
             ]
             goal = primary(frontier)
+            if goal is None:
+                hint = "Every milestone is done."
+            else:
+                hint = self._hint(goal, ram) if hints else goal.label
             return ObjectiveReport(
                 goal=infos[0] if infos else None,
                 also=infos[1:],
                 hint_tier=self.hint_tier,
-                hint=self._hint(goal, ram) if goal else "Every milestone is done.",
+                hint=hint,
                 done=sum(state.values()),
                 total=len(state),
                 party_levels=levels,
@@ -249,17 +367,21 @@ class ObjectiveTracker:
             goal = primary(frontier)
             if goal is None:
                 return HintResult(goal=None, tier=0, hint="Every milestone is done.")
+            if self.policy.mode == "off":
+                return HintResult(goal=goal.id, tier=0, hint=goal.label, note=HINTS_OFF)
             note = None
             if self.hint_tier < MAX_TIER:
                 self.hint_tier += 1
             else:
                 note = f"Already at the most specific hint (tier {MAX_TIER})"
-            return HintResult(
+            result = HintResult(
                 goal=goal.id,
                 tier=self.hint_tier,
                 hint=self._hint(goal, ram),
                 note=note,
             )
+        self.save()
+        return result
 
     def route(self, execute: bool = False) -> RouteResult:
         """Plan a path to the current goal's target, and walk it if asked to.
@@ -275,6 +397,8 @@ class ObjectiveTracker:
             return RouteResult(
                 status="no_location", milestone="", note="Every milestone is done."
             )
+        if self.policy.mode == "off":
+            return RouteResult(status="disabled", milestone=goal.id, note=HINTS_OFF)
 
         result = RouteResult(**self._route(goal, ram).model_dump())
         if result.status == "no_location":
