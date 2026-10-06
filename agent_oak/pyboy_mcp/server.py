@@ -268,7 +268,7 @@ def build_server(
             # some warps sit on solid tiles, they are still reachable through
             # the warp edge that lands on them
             is_warp = any((w.x, w.y) == (x, y) for w in target.warps)
-            if not is_warp and world.terrain(node=goal) is None:
+            if not is_warp and world.terrain(node=goal) in (None, "cut"):
                 return {
                     "reached": False,
                     "error": f"{goal} is out of bounds or not walkable",

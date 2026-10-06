@@ -8,7 +8,7 @@ import yaml
 
 from agent_oak.objectives.constants import load_constants_json
 from agent_oak.objectives.predicates import Predicate, PredicateParser
-from agent_oak.parser.models import GameMap
+from agent_oak.parser.models import GameMap, MapObject
 
 OBJECTIVES_PATH = Path("data/objectives.yaml")
 MILESTONE_KEYS = {
@@ -23,6 +23,7 @@ MILESTONE_KEYS = {
     "tags",
 }
 READINESS_KEYS = {"min_level", "ace", "ace_level"}
+BLOCKER_KEYS = {"id", "map", "tiles", "npcs", "until", "blurb"}
 
 
 @dataclass(frozen=True)
@@ -62,11 +63,29 @@ class Milestone:
 
 
 @dataclass(frozen=True)
+class Blocker:
+    """Tiles a script or NPC keeps the player off until a predicate holds.
+
+    E.g. the old man north of Viridian City until the Pokedex, the guard in
+    front of the robbed house in Cerulean until the S.S. Ticket.
+    """
+
+    id: str
+    map: str
+    tiles: tuple[tuple[int, int], ...]
+    until: Predicate
+    blurb: str
+
+
+@dataclass(frozen=True)
 class Objectives:
-    """Every milestone in YAML order and the named capabilities."""
+    """Every milestone in YAML order, the capabilities and the blockers."""
 
     milestones: tuple[Milestone, ...]
     capabilities: dict[str, Predicate]
+    blockers: tuple[Blocker, ...] = ()
+    toggle_by_object: dict[str, int] = field(default_factory=dict)
+    """Toggleable object index by object constant, e.g. CERULEANCITY_GUARD2."""
 
     def by_id(self) -> dict[str, Milestone]:
         """Milestones keyed by id."""
@@ -83,6 +102,74 @@ class ObjectivesError(ValueError):
             f"{len(problems)} problem(s) in the objectives:\n"
             + "\n".join(f"  - {p}" for p in problems)
         )
+
+
+def _find_npc(
+    game_map: GameMap, name: Any, where: str, errors: list[str]
+) -> MapObject | None:
+    """Find the one object on 'game_map' called 'name', with or without prefix."""
+    found = [
+        o
+        for o in game_map.map_objects
+        if o.name is not None and (o.name == name or o.name.endswith(f"_{name}"))
+    ]
+    if len(found) != 1:
+        names = [o.name for o in game_map.map_objects]
+        errors.append(
+            f"{where}: npc {name!r} matches {len(found)} objects on "
+            f"{game_map.const}, objects are {names}"
+        )
+        return None
+    return found[0]
+
+
+def _parse_blocker(
+    raw: Any,
+    index: int,
+    parser: PredicateParser,
+    maps: dict[str, GameMap],
+    errors: list[str],
+) -> Blocker | None:
+    where = f"blockers[{index}]"
+    if not isinstance(raw, dict) or not isinstance(raw.get("id"), str):
+        errors.append(f"{where}: expected a mapping with an id")
+        return None
+    where = f"blockers.{raw['id']}"
+    for key in raw.keys() - BLOCKER_KEYS:
+        errors.append(f"{where}: unknown key {key!r}")
+    for key in ("map", "until", "blurb"):
+        if key not in raw:
+            errors.append(f"{where}: missing {key}")
+    game_map = maps.get(raw.get("map", ""))
+    if game_map is None:
+        errors.append(f"{where}.map: unknown map {raw.get('map')!r}")
+        return None
+
+    tiles: list[tuple[int, int]] = []
+    for tile in raw.get("tiles") or []:
+        if (
+            not isinstance(tile, list)
+            or len(tile) != 2
+            or not (0 <= tile[0] < game_map.step_width)
+            or not (0 <= tile[1] < game_map.step_height)
+        ):
+            errors.append(f"{where}.tiles: {tile!r} is not an [x, y] on the map")
+            continue
+        tiles.append((tile[0], tile[1]))
+    for name in raw.get("npcs") or []:
+        npc = _find_npc(game_map, name, f"{where}.npcs", errors)
+        if npc is not None:
+            tiles.append((npc.x, npc.y))
+    if not tiles:
+        errors.append(f"{where}: needs tiles or npcs")
+
+    return Blocker(
+        id=raw["id"],
+        map=game_map.const,
+        tiles=tuple(tiles),
+        until=parser.parse(raw.get("until"), f"{where}.until"),
+        blurb=str(raw.get("blurb", "")),
+    )
 
 
 def _resolve_target(
@@ -104,19 +191,10 @@ def _resolve_target(
     ((kind, value),) = spec.items()
 
     if kind == "npc":
-        found = [
-            o
-            for o in game_map.map_objects
-            if o.name is not None and (o.name == value or o.name.endswith(f"_{value}"))
-        ]
-        if len(found) != 1:
-            names = [o.name for o in game_map.map_objects]
-            errors.append(
-                f"{where}: npc {value!r} matches {len(found)} objects on "
-                f"{map_const}, objects are {names}"
-            )
+        found = _find_npc(game_map, value, where, errors)
+        if found is None:
             return None
-        return Target(x=found[0].x, y=found[0].y, kind="npc", name=found[0].name)
+        return Target(x=found.x, y=found.y, kind="npc", name=found.name)
 
     if kind == "tile":
         if (
@@ -248,6 +326,15 @@ def parse_objectives(
             )
         )
 
+    blockers = []
+    for i, raw in enumerate(data.get("blockers") or []):
+        blocker = _parse_blocker(raw, i, parser, maps, errors)
+        if blocker is not None:
+            blockers.append(blocker)
+    ids = [b.id for b in blockers]
+    for dup in {b for b in ids if ids.count(b) > 1}:
+        errors.append(f"blockers.{dup}: duplicate id")
+
     for m in milestones:
         for dep in m.requires:
             if dep not in seen:
@@ -257,7 +344,14 @@ def parse_objectives(
     errors = parser.errors + errors
     if errors:
         raise ObjectivesError(errors)
-    return Objectives(milestones=tuple(milestones), capabilities=capabilities)
+    return Objectives(
+        milestones=tuple(milestones),
+        capabilities=capabilities,
+        blockers=tuple(blockers),
+        toggle_by_object={
+            t["object"]: t["index"] for t in constants["toggles"].values()
+        },
+    )
 
 
 def load_objectives(

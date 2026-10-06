@@ -141,7 +141,7 @@ def shortest_path(
         seen.add(cur)
 
         for e in world.neighbors(node=cur):
-            if e.requires > have or blocked(e.dst):
+            if not e.requires <= have or blocked(e.dst):
                 continue
 
             g = best[cur] + e.cost
@@ -159,12 +159,25 @@ def nearest_path(
     start: Node,
     is_goal: Callable[[Node], bool],
     abilities: Iterable[str] = (),
+    blocked: Callable[[Node], bool] = lambda n: False,
+    gates: Callable[[Node], frozenset[str]] | None = None,
+    penalty: Callable[[frozenset[str]], float] | None = None,
 ) -> list[Edge] | None:
     """Find the cheapest path to any node that satisfies 'is_goal'.
 
     Dijkstra over the same edges as shortest_path, for goals that are a
     whole region (any tile of a map, any tile next to an NPC) instead of a
     single tile.
+
+    Args:
+        world: The world to search.
+        start: Where to start.
+        is_goal: Whether a node is a goal.
+        abilities: Tokens that satisfy edge requirements.
+        blocked: Nodes that can't be entered at all.
+        gates: Extra tokens needed to enter a node (a boulder needs
+            STRENGTH, a story blocker its id), added to the edge's.
+        penalty: Extra cost of an edge by the tokens it needs.
 
     Returns:
         The edges to the closest goal, empty if 'start' is one, None if no
@@ -190,9 +203,10 @@ def nearest_path(
         seen.add(cur)
 
         for e in world.neighbors(node=cur):
-            if e.requires > have:
+            needs = e.requires | gates(e.dst) if gates else e.requires
+            if not needs <= have or blocked(e.dst):
                 continue
-            g = cost + e.cost
+            g = cost + e.cost + (penalty(needs) if penalty and needs else 0.0)
             if g < best.get(e.dst, float("inf")):
                 best[e.dst] = g
                 prev[e.dst] = (cur, e)

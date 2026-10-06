@@ -129,6 +129,9 @@ class Tileset(BaseModel):
     pair_collisions_water: set[frozenset[int]] = Field(default_factory=set)
     ledges: list[tuple[Direction, int, int]] = Field(default_factory=list)
     counter_tiles: set[int] = Field(default_factory=set)
+    cut_trees: set[int] = Field(
+        default_factory=set, description="Tiles Cut removes, solid until then"
+    )
     grass_tile: int | None = None
 
     @property

@@ -393,6 +393,32 @@ def parse_collision_tile_ids(
     return collision_tile_ids_by_name
 
 
+def parse_cut_tree_tiles(
+    cut: Path = Path("engine/overworld/cut.asm"),
+) -> dict[str, set[int]]:
+    """Parse the tiles Cut works on per tileset from UsedCut.
+
+    UsedCut compares wCurMapTileset (`and a` for OVERWORLD, `cp GYM`) and
+    then the tile in front of the player against the cut tree tiles, the
+    ones commented "cut tree". Grass can be cut too but is walkable anyway.
+    """
+    trees: dict[str, set[int]] = defaultdict(set)
+    tileset: str | None = None
+    for line in cut.read_text().splitlines():
+        code, _, comment = line.partition(";")
+        code = code.strip()
+        if code.startswith("UsedCut:") or code == ".nothingToCut":
+            tileset = None
+        if code == ".overworld" or (code == "and a" and "OVERWORLD" in comment):
+            tileset = "OVERWORLD"
+        elif m := re.fullmatch(r"cp\s+([A-Z_]+)", code):
+            tileset = m.group(1)
+        elif (m := re.fullmatch(r"cp\s+\$([0-9A-Fa-f]+)", code)) and tileset:
+            if "cut tree" in comment:
+                trees[tileset].add(int(m.group(1), 16))
+    return dict(trees)
+
+
 def load_blocksets(
     blocksets_path: Path = Path("gfx/blocksets/"),
 ) -> dict[str, bytes]:
@@ -416,6 +442,7 @@ def parse_tilesets() -> tuple[dict[str, Tileset], dict[int, Tileset]]:
     water_tilesets = parse_water_tilesets()
     pair_collisions_land, pair_collisions_water = parse_pair_collision_tile_ids()
     headers = parse_tileset_headers()
+    cut_trees = parse_cut_tree_tiles()
 
     tilesets_by_name: dict[str, Tileset] = {}
     tilesets_by_id: dict[int, Tileset] = {}
@@ -438,6 +465,7 @@ def parse_tilesets() -> tuple[dict[str, Tileset], dict[int, Tileset]]:
             blocks=blocksets[blockset],
             collision=collision_tile_ids[name.replace("_", "").lower()],
             counter_tiles=counter_tiles,
+            cut_trees=cut_trees.get(name, set()),
             grass_tile=grass_tile,
             water=water,
             pair_collisions_land=pair_collisions_land[name],

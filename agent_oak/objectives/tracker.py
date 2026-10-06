@@ -16,7 +16,7 @@ from agent_oak.objectives.hints import MAX_TIER, hint_text
 from agent_oak.objectives.milestones import Milestone
 from agent_oak.objectives.progress import HintPolicy, Position, Progress
 from agent_oak.objectives.ram import Ram
-from agent_oak.objectives.routing import Route, RouteTarget, plan_route
+from agent_oak.objectives.routing import Route, RouteTarget, plan_route, route_context
 from agent_oak.parser.models import GameMap
 from agent_oak.pyboy_mcp.emulator import running
 
@@ -319,10 +319,14 @@ class ObjectiveTracker:
             milestone=goal,
             start=start,
             abilities=self.evaluator.capabilities(ram),
+            context=route_context(
+                objectives=self.evaluator.objectives, maps=self.world.maps, ram=ram
+            ),
         )
 
     def _hint(self, goal: Milestone, ram: Ram) -> str:
-        route = self._route(goal, ram) if self.hint_tier >= MAX_TIER else None
+        # from tier 2 on the hint says what blocks the way, 3 adds the path
+        route = self._route(goal, ram) if self.hint_tier >= 2 else None
         return hint_text(goal, tier=self.hint_tier, route=route)
 
     def report(self) -> ObjectiveReport:

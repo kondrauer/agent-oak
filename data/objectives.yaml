@@ -30,6 +30,52 @@ capabilities:
   STRENGTH: { all: [{ badge: RAINBOW }, { party_move: STRENGTH }] }
   FLASH: { all: [{ badge: BOULDER }, { party_move: FLASH }] }
 
+# Tiles scripts or NPCs keep the player off until 'until' holds. Routing
+# treats them as closed until then and reports the blocker's id when a path
+# needs them. tiles are [x, y] steps, npcs are object constants whose tile
+# is blocked. NPCs that stand still are obstacles anyway, list them here
+# only to explain why and when they move.
+blockers:
+  # ViridianCity.asm, ViridianCityCheckGotPokedexScript at (19, 9) sends the
+  # player back, the sleeping old man (TOGGLE_LYING_OLD_MAN) lies next to it
+  - id: VIRIDIAN_OLD_MAN
+    map: VIRIDIAN_CITY
+    tiles: [[19, 9]]
+    npcs: [OLD_MAN_SLEEPY]
+    until: { event: EVENT_GOT_POKEDEX }
+    blurb: "An old man blocks the road north of Viridian City until you have a Pokedex."
+
+  # PewterCity.asm, PewterCityPlayerLeavingEastCoords until EVENT_BEAT_BROCK
+  - id: PEWTER_EAST_EXIT
+    map: PEWTER_CITY
+    tiles: [[35, 17], [36, 17], [37, 18], [37, 19]]
+    until: { event: EVENT_BEAT_BROCK }
+    blurb: "A boy drags you to Pewter Gym when you try to leave east before beating Brock."
+
+  # BillsHouse.asm hides TOGGLE_CERULEAN_GUARD_2 with the S.S. Ticket
+  - id: CERULEAN_GUARD
+    map: CERULEAN_CITY
+    npcs: [GUARD2]
+    until: { object_hidden: TOGGLE_CERULEAN_GUARD_2 }
+    blurb: "A police officer guards the robbed house in Cerulean, he leaves once Bill gave you the S.S. Ticket."
+
+  # VermilionCity.asm, SSAnneTicketCheckCoords: the sailor checks the bag for
+  # S_S_TICKET and turns everyone away after the ship left
+  - id: VERMILION_DOCK_SAILOR
+    map: VERMILION_CITY
+    tiles: [[18, 30]]
+    npcs: [SAILOR1]
+    until: { all: [{ item: S_S_TICKET }, { not: { event: EVENT_SS_ANNE_LEFT } }] }
+    blurb: "The sailor at Vermilion's dock only lets you onto the S.S. Anne with an S.S. Ticket, and not after it left."
+
+  # VermilionGym.asm, VermilionGymSetDoorTile puts the double door block $24
+  # at block (2, 2) until EVENT_2ND_LOCK_OPENED. The .blk has the open floor.
+  - id: VERMILION_GYM_DOOR
+    map: VERMILION_GYM
+    tiles: [[4, 4], [5, 4], [4, 5], [5, 5]]
+    until: { event: EVENT_2ND_LOCK_OPENED }
+    blurb: "An electric door blocks Lt. Surge, open it with the two switches hidden in the gym's trash cans."
+
 milestones:
   # Segment 1: Pallet Town to the Thunder Badge
 

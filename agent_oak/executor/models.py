@@ -149,6 +149,9 @@ class World:
 
     @staticmethod
     def _req(a: str | None, b: str | None) -> frozenset[str]:
+        """Capabilities needed to step from terrain 'a' onto terrain 'b'."""
+        if b == "cut":
+            return frozenset({"CUT"})
         return frozenset({"SURF"}) if "water" in (a, b) else frozenset()
 
     def warp_destinations(self, node: Node) -> set[Node]:
@@ -218,7 +221,7 @@ class World:
         self,
         node: Node,
     ) -> str | None:
-        """'land', 'water' or None if the step is solid."""
+        """'land', 'water', 'cut' (a tree Cut removes) or None if solid."""
         if not self.in_bounds(node):
             return None
 
@@ -228,6 +231,8 @@ class World:
             return "land"
         if t in ts.water:
             return "water"
+        if t in ts.cut_trees:
+            return "cut"
         return None
 
     def _cross(

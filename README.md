@@ -56,6 +56,12 @@ count as stalling. `--hint-policy on_request` only gives hints when asked, `--hi
 the goal's name and turns hints and routing off, for benchmarking. The tier, stall counter and visited
 tiles are kept in `pokemon-red.gb.objectives.json` across restarts (`--reset-objectives` clears it).
 
+Routing to a goal knows what the static map data doesn't: NPCs that stand still, boulders (Strength),
+cut trees (Cut, tiles taken from `UsedCut`), water (Surf) and story blockers listed in the YAML (the
+old man north of Viridian, the Cerulean police officer, the S.S. Anne's sailor, ...), each open once its
+predicate holds. When there is no path, `route_to_objective` says what the way needs, e.g.
+`blocked_by: ["CUT"]` in Vermilion before Cut, and hints from tier 2 on name it.
+
 ## Getting started
 
 Requires Python 3.13, [uv](https://docs.astral.sh/uv/) and Graphviz (for `pygraphviz`). The ROM is not included: place your own `pokemon-red.gb` in the repo root.
@@ -89,7 +95,7 @@ Then point any MCP client at the server. `.vscode/mcp.json` has a ready-made con
 - [x] Interrupt handling (wild battles, dialogues) during multi-step actions
 - [x] Beat the first gym end to end over MCP
 - [x] Fix the playtest findings in [BUGS.md](BUGS.md) (party stats, battle type, stale battle text, options screen, gate warps)
-- [ ] Objective layer: let the LLM query what it has achieved (badges, key items, story flags) and what it still needs to do next (milestones up to the Thunder Badge, status line, objective tools and stuck detection done; capability-aware routing and the rest of the story next)
+- [ ] Objective layer: let the LLM query what it has achieved (badges, key items, story flags) and what it still needs to do next (milestones up to the Thunder Badge, status line, objective tools, stuck detection and capability-aware routing done; the rest of the story next)
 - [ ] Memory layer for long-horizon play
 - [ ] Tests
 

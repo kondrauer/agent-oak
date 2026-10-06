@@ -153,7 +153,7 @@ def _door_button(
         d
         for d, (dx, dy) in DELTA.items()
         if world.in_bounds((node[0], node[1] + dx, node[2] + dy))
-        and world.terrain(node=(node[0], node[1] + dx, node[2] + dy)) is None
+        and world.terrain(node=(node[0], node[1] + dx, node[2] + dy)) in (None, "cut")
     ]
     facing = read_player_facing(pyboy=pyboy, syms=syms)
     if facing in walls:
