@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from agent_oak.executor.dialogue import stand_tiles
 from agent_oak.executor.graph import nearest_path
-from agent_oak.executor.models import Edge, Node, World
+from agent_oak.executor.models import ELEVATOR, Edge, Node, World
 from agent_oak.objectives.milestones import Milestone, Objectives
 from agent_oak.objectives.ram import Ram
 from agent_oak.parser.models import GameMap
@@ -192,7 +192,8 @@ def plan_route(
     goals = _goal_tiles(world=world, milestone=milestone)
     map_const = milestone.map
     ctx = context or RouteContext()
-    have = frozenset(abilities)
+    # the route is a plan, it may say to ride an elevator
+    have = frozenset(abilities) | {ELEVATOR}
 
     def is_goal(node: Node) -> bool:
         return node[0] == map_const if goals is None else node in goals
@@ -205,6 +206,13 @@ def plan_route(
             return MISSING_CAPABILITY_COST
         return MISSING_BLOCKER_COST
 
+    def gate(node: Node) -> frozenset[str]:
+        # a blocker on the goal is what the goal is about (the ghost on the
+        # stairs is beaten there), it doesn't keep the player from it
+        if goals is not None and node in goals:
+            return frozenset()
+        return ctx.gate(node)
+
     def search(tokens: frozenset[str]) -> list[Edge] | None:
         return nearest_path(
             world=world,
@@ -212,7 +220,7 @@ def plan_route(
             is_goal=is_goal,
             abilities=tokens,
             blocked=lambda n: n in ctx.blocked,
-            gates=ctx.gate,
+            gates=gate,
             penalty=missing_cost,
         )
 
@@ -220,14 +228,14 @@ def plan_route(
     missing: list[str] = []
     if path is None:
         everything = have | set(ctx.reasons)
-        for gate in ctx.gates.values():
-            everything |= gate
+        for tokens in ctx.gates.values():
+            everything |= tokens
         path = search(frozenset(everything))
         if path is None:
             return Route(status="no_path", milestone=milestone.id, target=target)
         used: set[str] = set()
         for edge in path:
-            used |= edge.requires | ctx.gate(edge.dst)
+            used |= edge.requires | gate(edge.dst)
         missing = sorted(used - have)
 
     maps, summary = summarize(start=start, path=path)

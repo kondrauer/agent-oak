@@ -13,6 +13,7 @@ from agent_oak.parser.constants import parse_asm_constants
 
 CONSTANTS_PATH = Path("data/constants.json")
 BADGE_BIT = re.compile(r"^BIT_(\w+)BADGE$")
+STATUS_FLAGS_SECTION = re.compile(r"^; (wStatusFlags\d)\s*$")
 _RE_TOGGLE_FOR = re.compile(r"^\s*(?:toggleable|missable)_objects_for\s+(\w+)")
 _RE_TOGGLE_STATE = re.compile(
     r"^\s*(?:toggle_object_state|missable_object_state)\s+([\w$]+)\s*,\s*(\w+)"
@@ -66,6 +67,25 @@ def _parse_toggle_objects(data: str) -> list[tuple[str, str, str]]:
     return out
 
 
+def _parse_status_flags(text: str) -> dict[str, dict[str, Any]]:
+    """Bits of wStatusFlags1-7, e.g. GAVE_SAFFRON_GUARDS_DRINK in flags 1.
+
+    ram_constants.asm has a section per variable, headed by a "; wName"
+    comment, each enumerating its bits from const_def.
+    """
+    flags: dict[str, dict[str, Any]] = {}
+    sections = re.split(r"(?m)^(?=; w)", text)
+    for section in sections:
+        header = section.splitlines()[0] if section else ""
+        m = STATUS_FLAGS_SECTION.match(header)
+        if m is None:
+            continue
+        for name, bit in parse_asm_constants(section, aliases=False).items():
+            if name.startswith("BIT_"):
+                flags[name.removeprefix("BIT_")] = {"symbol": m.group(1), "bit": bit}
+    return flags
+
+
 def build_constants(root: Path = Path(".")) -> dict[str, Any]:
     """Parse every table the objective layer needs from a pokered checkout.
 
@@ -73,7 +93,8 @@ def build_constants(root: Path = Path(".")) -> dict[str, Any]:
         root: The pokered checkout, the repo root has the files vendored.
     Returns:
         A JSON-serializable dict: event flag bit indices, toggleable objects,
-            item, move, species and map ids, town bits and badge bits.
+            item, move, species and map ids, town, badge and status flag
+            bits.
     """
 
     def consts(path: str, **kwargs: Any) -> dict[str, int]:
@@ -125,6 +146,9 @@ def build_constants(root: Path = Path(".")) -> dict[str, Any]:
         for k, v in consts("constants/ram_constants.asm").items()
         if (m := BADGE_BIT.match(k))
     }
+    status_flags = _parse_status_flags(
+        (root / "constants/ram_constants.asm").read_text()
+    )
 
     return {
         "toggle_naming": naming,
@@ -137,6 +161,7 @@ def build_constants(root: Path = Path(".")) -> dict[str, Any]:
         "maps": maps,
         "towns": towns,
         "badges": badges,
+        "status_flags": status_flags,
     }
 
 

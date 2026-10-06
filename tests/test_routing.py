@@ -146,3 +146,54 @@ def test_hint_names_the_blocker(world, objectives, maps, ram) -> None:
 
     assert "The way there is blocked by CUT: a small tree, you need Cut" in tier2
     assert "Path: blocked by CUT, " in tier3
+
+
+def test_rock_tunnel_needs_cut(world, objectives, maps, ram) -> None:
+    """With the Saffron gates closed Lavender is behind Route 9's tree."""
+    args = (world, objectives, maps, "REACH_LAVENDER", "VERMILION_CITY")
+    after_ticket = ram(
+        hide=("TOGGLE_CERULEAN_GUARD_2",), show=("TOGGLE_CERULEAN_GUARD_1",)
+    )
+
+    assert _route(*args, after_ticket).blocked_by == ["CUT"]
+    route = _route(*args, after_ticket, ("CUT",))
+    assert "ROCK_TUNNEL_1F" in route.maps and "SAFFRON_CITY" not in route.maps
+
+
+def test_saffron_gates_open_with_a_drink(world, objectives, maps, ram) -> None:
+    """A drink in the bag opens the gates, then Celadon is through Saffron."""
+    args = (world, objectives, maps, "REACH_CELADON", "VERMILION_CITY")
+
+    closed = _route(*args, ram(), ("CUT",))
+    open_ = _route(*args, ram(bag={"FRESH_WATER": 1}), ("CUT",))
+
+    assert "SAFFRON_CITY" not in closed.maps
+    assert "SAFFRON_CITY" in open_.maps and open_.steps < closed.steps
+
+
+def test_rocket_hideout(world, objectives, maps, ram) -> None:
+    """Giovanni is behind the poster, the lift and the B4F door."""
+    args = (world, objectives, maps, "BEAT_HIDEOUT_GIOVANNI", "CELADON_CITY")
+    found = ("EVENT_FOUND_ROCKET_HIDEOUT",)
+    beaten = ("TOGGLE_GAME_CORNER_ROCKET",)
+    door = found + ("EVENT_ROCKET_HIDEOUT_4_DOOR_UNLOCKED",)
+
+    assert set(_route(*args, ram()).blocked_by) >= {"GAME_CORNER_STAIRS"}
+    assert _route(*args, ram(events=door, hide=beaten)).blocked_by == [
+        "ROCKET_HIDEOUT_LIFT"
+    ]
+    with_key = ram(events=found, hide=beaten, bag={"LIFT_KEY": 1})
+    assert _route(*args, with_key).blocked_by == ["ROCKET_HIDEOUT_B4F_DOOR"]
+    route = _route(*args, ram(events=door, hide=beaten, bag={"LIFT_KEY": 1}))
+    assert route.status == "route" and "ROCKET_HIDEOUT_ELEVATOR" in route.maps
+
+
+def test_pokemon_tower(world, objectives, maps, ram) -> None:
+    """The ghost is the goal itself first, then blocks the way to Mr. Fuji."""
+    ghost = _route(
+        world, objectives, maps, "BEAT_MAROWAK_GHOST", "LAVENDER_TOWN", ram()
+    )
+    fuji = _route(world, objectives, maps, "RESCUE_MR_FUJI", "LAVENDER_TOWN", ram())
+
+    assert ghost.status == "route"
+    assert fuji.blocked_by == ["POKEMON_TOWER_GHOST"]

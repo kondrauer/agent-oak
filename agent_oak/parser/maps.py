@@ -12,6 +12,7 @@ from agent_oak.parser.models import (
     WATER_TILE,
     Connection,
     Direction,
+    ElevatorFloor,
     GameMap,
     GameMapConstant,
     ItemBall,
@@ -218,7 +219,40 @@ def parse_maps(
         maps_by_name[const] = game_map
         maps_by_id[map_const.idx] = game_map
 
+    for label, floors in parse_elevator_floors().items():
+        elevator = next((m for m in maps_by_name.values() if m.label == label), None)
+        if elevator is not None:
+            elevator.elevator_floors = floors
+
     return maps_by_name, maps_by_id
+
+
+_RE_ELEVATOR_WARP = re.compile(r"^\s*db\s+(\d+)\s*,\s*(\w+)")
+
+
+def parse_elevator_floors(
+    scripts: Path = Path("scripts"),
+) -> dict[str, list[ElevatorFloor]]:
+    """Parse the floors of every elevator, keyed by the elevator map's label.
+
+    An elevator's warps lead wherever its menu sends the player, the map
+    script copies <Label>WarpMaps (warp number, map) into wElevatorWarpMaps.
+    """
+    floors: dict[str, list[ElevatorFloor]] = {}
+    for path in sorted(scripts.glob("*Elevator.asm")):
+        label = path.stem
+        in_table = False
+        for line in path.read_text().splitlines():
+            code = line.split(";", 1)[0].strip()
+            if code == f"{label}WarpMaps:":
+                in_table = True
+            elif in_table and (m := _RE_ELEVATOR_WARP.match(code)):
+                floors.setdefault(label, []).append(
+                    ElevatorFloor(dest_map=m.group(2), dest_warp=int(m.group(1)))
+                )
+            elif in_table and code.endswith(":"):
+                break
+    return floors
 
 
 def _normalize(name: str) -> str:

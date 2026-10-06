@@ -76,6 +76,81 @@ blockers:
     until: { event: EVENT_2ND_LOCK_OPENED }
     blurb: "An electric door blocks Lt. Surge, open it with the two switches hidden in the gym's trash cans."
 
+  # Segment 2
+
+  # Route5Gate.asm .. Route8Gate.asm: the guard turns the player back at
+  # these coords unless wStatusFlags1 has BIT_GAVE_SAFFRON_GUARDS_DRINK, or
+  # RemoveGuardDrink finds one of GuardDrinksList in the bag (and sets it)
+  - id: SAFFRON_GATE_NORTH
+    map: ROUTE_5_GATE
+    tiles: [[3, 3], [4, 3]]
+    until: &gave_drink
+      any:
+        - { status_flag: GAVE_SAFFRON_GUARDS_DRINK }
+        - { item: FRESH_WATER }
+        - { item: SODA_POP }
+        - { item: LEMONADE }
+    blurb: &thirsty "The guards at the gates to Saffron City are thirsty, they let you through once you bring one a drink (Fresh Water, Soda Pop or Lemonade from the vending machines on the Celadon Mart roof)."
+  - id: SAFFRON_GATE_SOUTH
+    map: ROUTE_6_GATE
+    tiles: [[3, 2], [4, 2]]
+    until: *gave_drink
+    blurb: *thirsty
+  - id: SAFFRON_GATE_WEST
+    map: ROUTE_7_GATE
+    tiles: [[3, 3], [3, 4]]
+    until: *gave_drink
+    blurb: *thirsty
+  - id: SAFFRON_GATE_EAST
+    map: ROUTE_8_GATE
+    tiles: [[2, 3], [2, 4]]
+    until: *gave_drink
+    blurb: *thirsty
+
+  # GameCorner.asm hides TOGGLE_GAME_CORNER_ROCKET after his battle, he
+  # stands in front of the poster
+  - id: GAME_CORNER_ROCKET
+    map: GAME_CORNER
+    npcs: [ROCKET]
+    until: { object_hidden: TOGGLE_GAME_CORNER_ROCKET }
+    blurb: "A Team Rocket grunt guards a poster in the Game Corner, talk to him to battle."
+
+  # GameCorner.asm puts the poster wall block $2a at block (8, 2) until
+  # EVENT_FOUND_ROCKET_HIDEOUT, the .blk has the stairs ($43)
+  - id: GAME_CORNER_STAIRS
+    map: GAME_CORNER
+    tiles: [[16, 4], [17, 4], [16, 5], [17, 5]]
+    until: { event: EVENT_FOUND_ROCKET_HIDEOUT }
+    blurb: "The stairs to the Rocket Hideout are hidden until you press the switch behind the poster in the Game Corner."
+
+  # RocketHideoutElevator.asm checks the bag for LIFT_KEY
+  - id: ROCKET_HIDEOUT_LIFT
+    map: ROCKET_HIDEOUT_ELEVATOR
+    tiles: [[2, 1], [3, 1]]
+    until: { item: LIFT_KEY }
+    blurb: "The Rocket Hideout's elevator needs the Lift Key, a grunt on B4F drops it."
+
+  # RocketHideoutB4F.asm, RocketHideoutB4FDoorCallbackScript: door block $2d
+  # at block (12, 5) until both guards are beaten, the .blk has the floor
+  - id: ROCKET_HIDEOUT_B4F_DOOR
+    map: ROCKET_HIDEOUT_B4F
+    tiles: [[24, 10], [25, 10], [24, 11], [25, 11]]
+    until:
+      any:
+        - { event: EVENT_ROCKET_HIDEOUT_4_DOOR_UNLOCKED }
+        - all:
+            - { event: EVENT_BEAT_ROCKET_HIDEOUT_4_TRAINER_0 }
+            - { event: EVENT_BEAT_ROCKET_HIDEOUT_4_TRAINER_1 }
+    blurb: "Giovanni's door on Rocket Hideout B4F opens once you beat the two grunts guarding it."
+
+  # PokemonTower6F.asm, the ghost battle at (10, 16) can only be won with
+  # the Silph Scope (engine/battle/core.asm checks the bag for it)
+  - id: POKEMON_TOWER_GHOST
+    map: POKEMON_TOWER_6F
+    tiles: [[10, 16]]
+    until: { event: EVENT_BEAT_GHOST_MAROWAK }
+    blurb: "A ghost blocks the stairs to the top of Pokemon Tower, you need the Silph Scope to see through it."
+
 milestones:
   # Segment 1: Pallet Town to the Thunder Badge
 
@@ -299,4 +374,128 @@ milestones:
     target: { npc: LT_SURGE }
     blurb: "Defeat Lt. Surge, the Electric-type leader of Vermilion Gym, for the Thunder Badge."
     readiness: { ace: RAICHU, ace_level: 24 }
+    tags: [main]
+
+  # Segment 2: the Thunder Badge to the Poke Flute
+
+  # Routing: Route 9 east of Cerulean starts behind a cut tree, Rock Tunnel
+  # is the only way to Lavender while the Saffron gates are closed
+  - id: REACH_LAVENDER
+    label: Reach Lavender Town
+    done: { visited: LAVENDER_TOWN }
+    requires: [TEACH_CUT, BEAT_CERULEAN_ROCKET]
+    map: LAVENDER_TOWN
+    blurb: "Cut the tree on Route 9 east of Cerulean, follow Route 10 south through Rock Tunnel (Flash helps in the dark) to Lavender Town."
+    tags: [main]
+
+  # Routing: Route 8 west of Lavender, the Underground Path to Route 7
+  - id: REACH_CELADON
+    label: Reach Celadon City
+    done: { visited: CELADON_CITY }
+    requires: [REACH_LAVENDER]
+    map: CELADON_CITY
+    blurb: "Go west from Lavender on Route 8, take the Underground Path under Saffron to Route 7 and on to Celadon City."
+    tags: [main]
+
+  # CeladonGym.asm, the gym door is behind a cut tree
+  - id: BEAT_ERIKA
+    label: Beat Erika
+    done: { badge: RAINBOW }
+    requires: [REACH_CELADON, TEACH_CUT]
+    map: CELADON_GYM
+    target: { npc: ERIKA }
+    blurb: "Cut the tree in front of Celadon Gym and defeat Erika, the Grass-type leader, for the Rainbow Badge."
+    readiness: { ace: VILEPLUME, ace_level: 29 }
+    tags: [main]
+
+  # GameCorner.asm hides TOGGLE_GAME_CORNER_ROCKET after the battle
+  - id: BEAT_GAME_CORNER_ROCKET
+    label: Beat the Game Corner grunt
+    done: { object_hidden: TOGGLE_GAME_CORNER_ROCKET }
+    requires: [REACH_CELADON]
+    map: GAME_CORNER
+    target: { npc: ROCKET }
+    blurb: "A Team Rocket grunt stands at a poster in Celadon's Game Corner, beat him."
+    tags: [main]
+
+  # GameCorner.asm, the poster text sets it and reveals the stairs
+  - id: FIND_ROCKET_HIDEOUT
+    label: Find the Rocket Hideout
+    done: { event: EVENT_FOUND_ROCKET_HIDEOUT }
+    requires: [BEAT_GAME_CORNER_ROCKET]
+    map: GAME_CORNER
+    target: { tile: [9, 4] }
+    blurb: "Press the switch behind the poster the grunt guarded, it opens the stairs to the Rocket Hideout."
+    tags: [main]
+
+  # RocketHideoutB4F.asm shows the Lift Key ball when ROCKET3 is beaten
+  # (EVENT_ROCKET_DROPPED_LIFT_KEY), the elevator checks the bag for it
+  - id: GET_LIFT_KEY
+    label: Get the Lift Key
+    done: { item_anywhere: LIFT_KEY }
+    requires: [FIND_ROCKET_HIDEOUT]
+    map: ROCKET_HIDEOUT_B4F
+    target: { npc: ROCKET3 }
+    blurb: "Take the stairs down to Rocket Hideout B4F, beat the grunt there and pick up the Lift Key he drops."
+    tags: [main]
+
+  # RocketHideoutB4F.asm
+  - id: BEAT_HIDEOUT_GIOVANNI
+    label: Beat Giovanni in the hideout
+    done: { event: EVENT_BEAT_ROCKET_HIDEOUT_GIOVANNI }
+    requires: [GET_LIFT_KEY]
+    map: ROCKET_HIDEOUT_B4F
+    target: { npc: GIOVANNI }
+    blurb: "Ride the hideout's elevator to B4F with the Lift Key, beat the two guards to open the door and defeat Giovanni."
+    readiness: { ace: KANGASKHAN, ace_level: 29 }
+    tags: [main]
+
+  # the SILPH_SCOPE item ball on B4F, shown when Giovanni leaves
+  - id: GET_SILPH_SCOPE
+    label: Get the Silph Scope
+    done: { item_anywhere: SILPH_SCOPE }
+    requires: [BEAT_HIDEOUT_GIOVANNI]
+    map: ROCKET_HIDEOUT_B4F
+    target: { npc: SILPH_SCOPE }
+    blurb: "Pick up the Silph Scope Giovanni left behind, it reveals the ghosts in Pokemon Tower."
+    tags: [main]
+
+  # PokemonTower2F.asm, triggered at (15, 5) or (14, 6)
+  - id: BEAT_TOWER_RIVAL
+    label: Beat the rival in the tower
+    done: { event: EVENT_BEAT_POKEMON_TOWER_RIVAL }
+    requires: [REACH_LAVENDER]
+    map: POKEMON_TOWER_2F
+    target: { tile: [15, 5] }
+    blurb: "Your rival waits on the second floor of Pokemon Tower in Lavender."
+    tags: [main]
+
+  # PokemonTower6F.asm, the battle at (10, 16) needs the Silph Scope
+  - id: BEAT_MAROWAK_GHOST
+    label: Beat the Marowak ghost
+    done: { event: EVENT_BEAT_GHOST_MAROWAK }
+    requires: [GET_SILPH_SCOPE]
+    map: POKEMON_TOWER_6F
+    target: { tile: [10, 16] }
+    blurb: "Climb Pokemon Tower with the Silph Scope, the ghost on 6F in front of the stairs is a Marowak you can now battle."
+    tags: [main]
+
+  # PokemonTower7F.asm sets it after the three grunts
+  - id: RESCUE_MR_FUJI
+    label: Rescue Mr. Fuji
+    done: { event: EVENT_RESCUED_MR_FUJI }
+    requires: [BEAT_MAROWAK_GHOST]
+    map: POKEMON_TOWER_7F
+    target: { npc: MR_FUJI }
+    blurb: "Beat the Team Rocket grunts on the top floor of Pokemon Tower and talk to Mr. Fuji."
+    tags: [main]
+
+  # MrFujisHouse.asm
+  - id: GET_POKE_FLUTE
+    label: Get the Poke Flute
+    done: { any: [{ event: EVENT_GOT_POKE_FLUTE }, { item_anywhere: POKE_FLUTE }] }
+    requires: [RESCUE_MR_FUJI]
+    map: MR_FUJIS_HOUSE
+    target: { npc: MR_FUJI }
+    blurb: "Visit Mr. Fuji at his house in Lavender, he gives you the Poke Flute to wake sleeping Pokemon."
     tags: [main]

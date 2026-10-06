@@ -8,7 +8,13 @@ import pytest
 
 from agent_oak.memory.read import PARTY_STRUCT_LEN
 from agent_oak.objectives.constants import load_constants_json
-from agent_oak.objectives.ram import BAG_CAPACITY, PARTY_LENGTH, PC_ITEM_CAPACITY, Ram
+from agent_oak.objectives.ram import (
+    BAG_CAPACITY,
+    PARTY_LENGTH,
+    PC_ITEM_CAPACITY,
+    STATUS_FLAGS,
+    Ram,
+)
 from agent_oak.parser.maps import parse_maps
 from agent_oak.parser.models import GameMap
 from agent_oak.pyboy_mcp.emulator import load_symbols
@@ -55,6 +61,7 @@ def make_ram(constants: dict[str, Any]) -> MakeRam:
         bag: dict[str, int] | None = None,
         box: dict[str, int] | None = None,
         party: list[tuple[int, list[str]]] | None = None,
+        status: tuple[str, ...] = (),
     ) -> Ram:
         """Party entries are (level, moves)."""
         c = constants
@@ -85,6 +92,17 @@ def make_ram(constants: dict[str, Any]) -> MakeRam:
                 ),
                 "wPartyCount": party_head
                 + bytes(mons).ljust(PARTY_LENGTH * PARTY_STRUCT_LEN, b"\x00"),
+            }
+            | {
+                symbol: _bits(
+                    [
+                        c["status_flags"][s]["bit"]
+                        for s in status
+                        if c["status_flags"][s]["symbol"] == symbol
+                    ],
+                    1,
+                )
+                for symbol in STATUS_FLAGS
             },
             party_mon_offset=len(party_head),
         )

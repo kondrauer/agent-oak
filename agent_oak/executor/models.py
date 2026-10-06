@@ -23,6 +23,9 @@ OPPOSITE: dict[Direction, Direction] = {
 
 Node = tuple[str, int, int]
 
+# elevators go to a floor picked in a menu, goto can't do that, routing can
+ELEVATOR = "ELEVATOR"
+
 GotoStatus = Literal["reached", "in_battle", "dialogue_open", "no_path", "gave_up"]
 
 # tilesets pokered's CheckIfInOutsideMap treats as outside
@@ -101,6 +104,17 @@ class World:
         last_map = resolve_last_map(self.maps)
         for const, m in self.maps.items():
             self._conns[const] = {Direction(c.direction): c for c in m.connections}
+            for floor in m.elevator_floors:
+                dest = self.maps[floor.dest_map]
+                dw = dest.warps[self._warp_index(floor.dest_warp)]
+                for w in m.warps:
+                    self._warps_out.setdefault((const, w.x, w.y), []).append(
+                        Edge(
+                            dst=(floor.dest_map, dw.x, dw.y),
+                            kind="warp",
+                            requires=frozenset({ELEVATOR}),
+                        )
+                    )
             for i, w in enumerate(m.warps):
                 if w.dest_map == "LAST_MAP":
                     override = LAST_MAP_OVERRIDES.get((const, i))

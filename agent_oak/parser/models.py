@@ -51,6 +51,13 @@ class Warp(BaseModel):
     dest_warp: int = Field(description="index into dest_map warps")
 
 
+class ElevatorFloor(BaseModel):
+    """A floor an elevator map can take the player to."""
+
+    dest_map: str = Field(description="Map constant of the floor")
+    dest_warp: int = Field(description="1 based warp index on that map")
+
+
 class ObjBase(BaseModel):
     """Common base class for map objects."""
 
@@ -149,6 +156,9 @@ class MapInfo(GameMapConstant):
     warps: list[Warp] = Field(default_factory=list)
     map_objects: list[MapObject] = Field(default_factory=list)
     signs: list[Sign] = Field(default_factory=list)
+    elevator_floors: list[ElevatorFloor] = Field(
+        default_factory=list, description="Floors of an elevator, from its menu"
+    )
 
 
 class GameMap(MapInfo):

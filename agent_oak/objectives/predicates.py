@@ -108,6 +108,23 @@ class ObjectHidden:
 
 
 @dataclass(frozen=True)
+class StatusFlag:
+    """A bit of wStatusFlags1-7, e.g. GAVE_SAFFRON_GUARDS_DRINK."""
+
+    name: str
+    symbol: str
+    bit: int
+
+    def evaluate(self, ram: Ram) -> bool:
+        """Test the flag's bit."""
+        return ram.bit(self.symbol, self.bit)
+
+    def describe(self) -> str:
+        """E.g. "status GAVE_SAFFRON_GUARDS_DRINK"."""
+        return f"status {self.name}"
+
+
+@dataclass(frozen=True)
 class PartyMove:
     """Any party Pokemon knows a move."""
 
@@ -249,6 +266,7 @@ class PredicateParser:
             "visited": lambda: TownVisited(value, self._lookup("towns", value, here)),
             "object_hidden": lambda: ObjectHidden(value, self._toggle(value, here)),
             "party_move": lambda: PartyMove(value, self._lookup("moves", value, here)),
+            "status_flag": lambda: self._status_flag(value, here),
             "capability": lambda: self._capability(value, here),
             "all": lambda: All(self._list(value, here)),
             "any": lambda: Any_(self._list(value, here)),
@@ -269,6 +287,15 @@ class PredicateParser:
             self.errors.append(f"{where}: unknown toggleable object {name!r}")
             return -1
         return entry["index"]
+
+    def _status_flag(self, name: Any, where: str) -> Predicate:
+        entry = (
+            self.constants["status_flags"].get(name) if isinstance(name, str) else None
+        )
+        if entry is None:
+            self.errors.append(f"{where}: unknown status flag {name!r}")
+            return All(())
+        return StatusFlag(name, entry["symbol"], entry["bit"])
 
     def _capability(self, name: Any, where: str) -> Predicate:
         predicate = self.capabilities.get(name) if isinstance(name, str) else None

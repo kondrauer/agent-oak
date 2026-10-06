@@ -14,6 +14,7 @@ MOVES_OFFSET = 0x08  # in the party struct
 LEVEL_OFFSET = 0x21
 NUM_MOVES = 4
 LIST_END = 0xFF
+STATUS_FLAGS = tuple(f"wStatusFlags{i}" for i in range(1, 8))
 
 
 def regions(syms: dict[str, int], num_events: int) -> dict[str, tuple[int, int]]:
@@ -37,6 +38,7 @@ def regions(syms: dict[str, int], num_events: int) -> dict[str, tuple[int, int]]
         "wNumBoxItems": (syms["wNumBoxItems"], 1 + 2 * PC_ITEM_CAPACITY + 1),
         # count, species list, then the party structs
         "wPartyCount": (syms["wPartyCount"], party_end - syms["wPartyCount"]),
+        **{name: (syms[name], 1) for name in STATUS_FLAGS},
     }
 
 
